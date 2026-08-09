@@ -1,0 +1,31 @@
+# OS & IDE System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Environment & Secrets (Ignored across all microservices)
+.env
+.env.*
+!.env.example
+
+# Composer & Node Dependencies
+**/vendor/
+**/node_modules/
+
+# Build & Output Artifacts
+**/build/
+**/.next/
+**/out/
+*.tsbuildinfo
+
+# Logs & Framework Caches
+*.log
+**/storage/logs/*
+**/storage/framework/cache/*
+**/storage/framework/sessions/*
+**/storage/framework/views/*
+**/storage/framework/testing/*
+**/bootstrap/cache/*

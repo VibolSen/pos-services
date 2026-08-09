@@ -1,0 +1,221 @@
+version: '3.8'
+
+services:
+  # 1. API Gateway (Nginx Reverse Proxy)
+  api-gateway:
+    image: nginx:alpine
+    container_name: pos-api-gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-service
+      - catalog-service
+      - inventory-service
+      - shift-service
+      - payment-service
+      - sales-service
+    networks:
+      - pos-network
+
+  # 2. Auth & Identity Service (Port 8001)
+  auth-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-auth-service
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./auth-service:/var/www/html
+    environment:
+      - APP_NAME="POS Auth Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=auth_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+    networks:
+      - pos-network
+
+  # 3. Catalog & Pricing Service (Port 8002)
+  catalog-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-catalog-service
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./catalog-service:/var/www/html
+    environment:
+      - APP_NAME="POS Catalog Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=catalog_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+    networks:
+      - pos-network
+
+  # 4. Inventory Ledger Service (Port 8003)
+  inventory-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-inventory-service
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./inventory-service:/var/www/html
+    environment:
+      - APP_NAME="POS Inventory Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=inventory_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+    networks:
+      - pos-network
+
+  # 5. Shift & Cash Drawer Service (Port 8004)
+  shift-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-shift-service
+    ports:
+      - "8004:8000"
+    volumes:
+      - ./shift-service:/var/www/html
+    environment:
+      - APP_NAME="POS Shift Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=shift_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+    networks:
+      - pos-network
+
+  # 6. Payment & Reconciliation Service (Port 8005)
+  payment-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-payment-service
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./payment-service:/var/www/html
+    environment:
+      - APP_NAME="POS Payment Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=payment_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+    networks:
+      - pos-network
+
+  # 7. Sales Checkout Engine (Port 8006)
+  sales-service:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.php
+    container_name: pos-sales-service
+    ports:
+      - "8006:8000"
+    volumes:
+      - ./sales-service:/var/www/html
+    environment:
+      - APP_NAME="POS Sales Service"
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-db
+      - DB_PORT=3306
+      - DB_DATABASE=sales_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root_password
+    depends_on:
+      - mysql-db
+      - redis-cache
+      - rabbitmq-bus
+    networks:
+      - pos-network
+
+  # 8. Central MySQL 8 Database Server
+  mysql-db:
+    image: mysql:8.0
+    container_name: pos-mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - pos-mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - pos-network
+
+  # 9. Redis 7 High-Speed Cache & Session Store
+  redis-cache:
+    image: redis:7-alpine
+    container_name: pos-redis-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - pos-network
+
+  # 10. RabbitMQ Async Event Bus & Queue Broker
+  rabbitmq-bus:
+    image: rabbitmq:3-management-alpine
+    container_name: pos-rabbitmq-bus
+    ports:
+      - "5672:5672"   # AMQP protocol port
+      - "15672:15672" # Management Web UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - pos-network
+
+networks:
+  pos-network:
+    driver: bridge
+
+volumes:
+  pos-mysql-data:
