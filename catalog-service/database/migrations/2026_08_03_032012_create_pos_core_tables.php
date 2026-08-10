@@ -45,10 +45,12 @@ return new class extends Migration
             $table->uuid('category_id')->nullable();
             $table->string('name');
             $table->string('sku')->unique();
+            $table->string('barcode')->nullable()->unique();
             $table->text('description')->nullable();
             $table->decimal('cost_price', 12, 4)->default(0);
             $table->decimal('selling_price', 12, 2)->default(0);
             $table->string('image_url')->nullable();
+            $table->integer('min_reorder_point')->default(5);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

@@ -1,7 +1,7 @@
 FROM php:8.2-cli-alpine
 
 # Install system dependencies & PHP extensions
-RUN apk add --no-config --no-cache \
+RUN apk add --no-cache \
     bash \
     curl \
     git \
@@ -10,6 +10,7 @@ RUN apk add --no-config --no-cache \
     zip \
     unzip \
     mysql-client \
+    linux-headers \
     && docker-php-ext-install pdo_mysql bcmath zip sockets
 
 # Install Composer

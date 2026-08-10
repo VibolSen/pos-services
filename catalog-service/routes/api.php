@@ -28,6 +28,7 @@ Route::prefix('v1')->group(function () {
         // Product Management (Restricted to Inventory Clerk, Outlet Manager, Admin, Super Admin)
         Route::middleware('role:inventory_clerk,outlet_manager,admin,super_admin')->group(function () {
             Route::post('/products', [ProductController::class, 'store']);
+            Route::post('/products/bulk', [ProductController::class, 'bulkStore']);
             Route::put('/products/{id}', [ProductController::class, 'update']);
             Route::delete('/products/{id}', [ProductController::class, 'destroy']);
 

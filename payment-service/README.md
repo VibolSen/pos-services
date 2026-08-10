@@ -1,59 +1,49 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Payment Microservice (`payment-service`)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+The **Payment Microservice** handles payment processing (Cash, ABA KHQR, Credit Card), KHQR payment status webhooks/callbacks, payment reconciliation, sales returns, and refund processing.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 1. Overview Specifications
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Port**: `8005`
+- **Database**: `payment_db` (MySQL 8.0)
+- **Primary Key Standard**: `uuidv4` (`char(36)`)
+- **API Gateway Prefix**: `/api/v1/payments`, `/api/v1/payment-callbacks`, `/api/v1/refunds`
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## 2. Key Responsibilities
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+1. **Multi-Tender Payments**: Process tender payments for orders (Cash, ABA PayWay / KHQR, Credit Card).
+2. **ABA KHQR Gateway Integration**: Generate KHQR QR strings and handle payment confirmation webhooks (`POST /api/v1/payment-callbacks/aba`).
+3. **Payment Status Queries**: Check transaction status for pending QR payments.
+4. **Sales Returns & Refunds**: Process partial or full refunds against completed sales transactions.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## 3. Database Schema (`payment_db`)
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- **`payments`**: Payment transaction headers (`id`, `sale_id`, `payment_method`, `amount`, `currency`, `status`, `transaction_reference`, `paid_at`).
+- **`payment_callbacks`**: Raw webhook payload audit log for external payment gateway callbacks.
+- **`refunds`**: Sales refund records (`id`, `payment_id`, `amount`, `reason`, `refunded_by`).
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## 4. API Endpoints Reference
 
-## Contributing
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/payments` | Cashier | Process tender payment for checkout transaction. |
+| `GET` | `/api/v1/payments/{id}/status` | Cashier | Query status of pending KHQR or card payment. |
+| `POST` | `/api/v1/payment-callbacks/aba` | Public Callback | Webhook callback handler for ABA PayWay / KHQR notifications. |
+| `POST` | `/api/v1/refunds` | Supervisor/Manager | Process refund for returned items. |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## 5. Development Commands
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Run database migrations inside Docker:
+```bash
+docker exec pos-payment-service php artisan migrate --force
+```

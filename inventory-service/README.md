@@ -1,59 +1,55 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Inventory Microservice (`inventory-service`)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+The **Inventory Microservice** handles stock level tracking, append-only stock movement ledger audit trails, purchase order receiving, stock adjustments & wastage write-offs, and inter-outlet stock transfers (`dispatched` &rarr; `received`).
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 1. Overview Specifications
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Port**: `8003`
+- **Database**: `inventory_db` (MySQL 8.0)
+- **Primary Key Standard**: `uuidv4` (`char(36)`)
+- **API Gateway Prefix**: `/api/v1/inventory`
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## 2. Key Responsibilities
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+1. **Stock Balances**: Track on-hand, reserved, and available stock quantities per outlet.
+2. **Append-Only Stock Ledger**: Record immutable audit logs (`inventory_movements`) for stock receives, sales, adjustments, returns, and transfers.
+3. **Purchase Order Receiving**: Add new stock inventory from Purchase Orders (`POST /api/v1/inventory/receive`).
+4. **Stock Adjustments & Spoilage**: Record manual stock counts, spoilage, or damage adjustments (`POST /api/v1/inventory/adjust`).
+5. **Inter-Outlet Stock Transfers**: Dispatch stock transfers from Source Outlet to Target Outlet (`POST /api/v1/inventory/transfers`) and confirm destination receipt (`POST /api/v1/inventory/transfers/{id}/receive`).
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## 3. Database Schema (`inventory_db`)
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- **`inventory_balances`**: Real-time stock counts (`id`, `outlet_id`, `product_id`, `on_hand`, `reserved`, `available`).
+- **`inventory_movements`**: Immutable stock audit ledger (`id`, `outlet_id`, `product_id`, `user_id`, `movement_type`, `quantity`, `unit_cost`, `reference_type`, `reference_id`, `notes`).
+- **`stock_transfers`**: Inter-outlet transfer headers (`id`, `transfer_number`, `from_outlet_id`, `to_outlet_id`, `user_id`, `status`, `dispatched_at`, `received_at`, `notes`).
+- **`stock_transfer_lines`**: Transfer item details (`id`, `transfer_id`, `product_id`, `quantity`).
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## 4. API Endpoints Reference
 
-## Contributing
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/inventory/balances` | Protected | Fetch current stock balances per outlet with low stock indicators. |
+| `GET` | `/api/v1/inventory/movements` | Protected | List stock movement ledger audit logs. |
+| `POST` | `/api/v1/inventory/receive` | Clerk/Admin | Receive stock from Purchase Order. |
+| `POST` | `/api/v1/inventory/adjust` | Clerk/Admin | Perform stock count adjustment or write off spoilage. |
+| `GET` | `/api/v1/inventory/transfers` | Protected | List stock transfers with status filter (`dispatched`, `received`). |
+| `GET` | `/api/v1/inventory/transfers/{id}` | Protected | Fetch detailed line items of stock transfer. |
+| `POST` | `/api/v1/inventory/transfers` | Clerk/Admin | Dispatch stock transfer from Source Outlet to Target Outlet. |
+| `POST` | `/api/v1/inventory/transfers/{id}/receive` | Clerk/Admin | Confirm receipt of stock transfer at destination outlet. |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## 5. Development Commands
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Run database migrations inside Docker:
+```bash
+docker exec pos-inventory-service php artisan migrate --force
+```

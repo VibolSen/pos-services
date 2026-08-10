@@ -44,9 +44,9 @@ class InventoryController extends Controller
                 'p.name as product_name',
                 'p.sku',
                 'p.barcode',
-                'p.price',
+                'p.selling_price as price',
                 'p.cost_price',
-                'p.image',
+                'p.image_url as image',
                 'p.min_reorder_point',
                 'c.name as category_name',
                 'ib.on_hand',
@@ -107,7 +107,7 @@ class InventoryController extends Controller
                 'u.name as user_name',
                 'im.created_at'
             )
-            ->orderBy('im.id', 'desc')
+            ->orderBy('im.created_at', 'desc')
             ->limit(100)
             ->get();
 
@@ -281,9 +281,9 @@ class InventoryController extends Controller
                 'p.name as product_name',
                 'p.sku',
                 'p.barcode',
-                'p.price',
+                'p.selling_price as price',
                 'p.cost_price',
-                'p.image',
+                'p.image_url as image',
                 'p.expiry_date',
                 'c.name as category_name',
                 DB::raw('COALESCE(ib.on_hand, 0) as on_hand'),
