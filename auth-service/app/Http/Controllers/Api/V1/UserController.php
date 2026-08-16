@@ -80,6 +80,10 @@ class UserController extends Controller
                 'name' => 'Accountant',
                 'capabilities' => ['reports.view', 'reconciliation.manage', 'expenses.view'],
             ],
+            'user' => [
+                'name' => 'User',
+                'capabilities' => ['catalog.view', 'profile.manage'],
+            ],
             'customer' => [
                 'name' => 'Customer',
                 'capabilities' => ['catalog.view', 'orders.place', 'profile.manage'],
@@ -94,10 +98,11 @@ class UserController extends Controller
 
     public function store(Request $request)
     {
-        $allowedRoles = [
-            'super_admin', 'admin', 'outlet_manager', 'supervisor',
-            'cashier', 'inventory_clerk', 'accountant', 'customer'
-        ];
+        $dynamicRoleSlugs = DB::table('roles')->pluck('slug')->toArray();
+        $allowedRoles = array_unique(array_merge([
+            'super_admin', 'admin', 'administrator', 'outlet_manager', 'supervisor',
+            'cashier', 'inventory_clerk', 'accountant', 'user', 'customer'
+        ], $dynamicRoleSlugs));
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -129,10 +134,11 @@ class UserController extends Controller
 
     public function update(Request $request, $id)
     {
-        $allowedRoles = [
-            'super_admin', 'admin', 'outlet_manager', 'supervisor',
-            'cashier', 'inventory_clerk', 'accountant', 'customer'
-        ];
+        $dynamicRoleSlugs = DB::table('roles')->pluck('slug')->toArray();
+        $allowedRoles = array_unique(array_merge([
+            'super_admin', 'admin', 'administrator', 'outlet_manager', 'supervisor',
+            'cashier', 'inventory_clerk', 'accountant', 'user', 'customer'
+        ], $dynamicRoleSlugs));
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',

@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\TransferController;
+use App\Http\Controllers\Api\V1\PurchaseController;
 
 Route::prefix('v1')->group(function () {
     // Health Check Endpoint for Inventory Microservice
@@ -29,6 +30,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/inventory/transfers/{id}', [TransferController::class, 'show']);
             Route::post('/inventory/transfers', [TransferController::class, 'store']);
             Route::post('/inventory/transfers/{id}/receive', [TransferController::class, 'receive']);
+
+            // Stock Purchases & Purchase Orders
+            Route::get('/purchases', [PurchaseController::class, 'purchases']);
+            Route::get('/purchase-orders', [PurchaseController::class, 'purchaseOrders']);
         });
     });
 });

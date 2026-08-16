@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\BrandController;
+use App\Http\Controllers\Api\V1\CouponController;
+use App\Http\Controllers\Api\V1\DiscountController;
 
 Route::prefix('v1')->group(function () {
     // Health Check Endpoint for Catalog Microservice
@@ -22,6 +24,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/barcodes/{code}', [ProductController::class, 'showByBarcode']);
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/brands', [BrandController::class, 'index']);
+    Route::get('/discounts', [DiscountController::class, 'index']);
+    Route::post('/coupons/validate', [CouponController::class, 'validateCoupon']);
 
     // Protected Catalog Management Routes
     Route::middleware('auth:sanctum')->group(function () {

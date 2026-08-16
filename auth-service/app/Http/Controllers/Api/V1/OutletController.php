@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class OutletController extends Controller
 {
@@ -32,7 +33,7 @@ class OutletController extends Controller
                 DB::raw('(SELECT COUNT(*) FROM users WHERE outlet_id = o.id) as staff_count'),
                 DB::raw('(SELECT COUNT(*) FROM registers WHERE outlet_id = o.id) as registers_count')
             )
-            ->orderBy('o.id', 'asc')
+            ->orderBy('o.name', 'asc')
             ->get();
 
         return response()->json([
@@ -52,7 +53,10 @@ class OutletController extends Controller
             'receipt_footer' => 'nullable|string|max:255',
         ]);
 
-        $id = DB::table('outlets')->insertGetId([
+        $id = (string) Str::uuid();
+
+        DB::table('outlets')->insert([
+            'id' => $id,
             'name' => $validated['name'],
             'code' => $validated['code'],
             'phone' => $validated['phone'] ?? null,

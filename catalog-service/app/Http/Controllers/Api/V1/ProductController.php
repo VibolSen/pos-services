@@ -218,12 +218,18 @@ class ProductController extends Controller
             'sku' => 'required|string|max:100|unique:products,sku',
             'selling_price' => 'required|numeric|min:0',
             'cost_price' => 'nullable|numeric|min:0',
-            'category_id' => 'nullable|integer',
+            'category_id' => 'nullable|string|max:36',
             'description' => 'nullable|string',
             'initial_stock' => 'nullable|integer|min:0',
         ]);
 
-        $productId = DB::table('products')->insertGetId([
+        $productId = (string) Str::uuid();
+
+        $outlet = DB::table('outlets')->first();
+        $outletId = $outlet ? $outlet->id : (string) Str::uuid();
+
+        DB::table('products')->insert([
+            'id' => $productId,
             'name' => $validated['name'],
             'sku' => $validated['sku'],
             'selling_price' => $validated['selling_price'],
@@ -237,7 +243,8 @@ class ProductController extends Controller
 
         $initialStock = $validated['initial_stock'] ?? 100;
         DB::table('inventory_balances')->insert([
-            'outlet_id' => 1,
+            'id' => (string) Str::uuid(),
+            'outlet_id' => $outletId,
             'product_id' => $productId,
             'on_hand' => $initialStock,
             'reserved' => 0,
@@ -259,7 +266,7 @@ class ProductController extends Controller
             'name' => 'sometimes|string|max:255',
             'selling_price' => 'sometimes|numeric|min:0',
             'cost_price' => 'sometimes|numeric|min:0',
-            'category_id' => 'sometimes|nullable|integer',
+            'category_id' => 'sometimes|nullable|string|max:36',
             'description' => 'sometimes|nullable|string',
         ]);
 

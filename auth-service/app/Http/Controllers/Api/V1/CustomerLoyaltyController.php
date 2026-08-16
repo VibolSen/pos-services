@@ -1,0 +1,202 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Exception;
+
+class CustomerLoyaltyController extends Controller
+{
+    /**
+     * Adjust Customer Store Credit (Add Deposit, Refund Credit, or Use Balance)
+     */
+    public function adjustStoreCredit(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'amount_change' => 'required|numeric',
+            'entry_type' => 'required|string|in:deposit,refund_credit,checkout_use,points_conversion,adjustment',
+            'reference_id' => 'nullable|string',
+            'notes' => 'nullable|string|max:255',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $customer = DB::table('customers')->where('id', $id)->first();
+            if (!$customer) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Customer record not found.',
+                ], 404);
+            }
+
+            $currentCredit = (float) ($customer->store_credit ?? 0);
+            $amountChange = (float) $validated['amount_change'];
+            $newCredit = $currentCredit + $amountChange;
+
+            if ($newCredit < 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Insufficient store credit balance.',
+                ], 422);
+            }
+
+            // Update customer balance
+            DB::table('customers')->where('id', $id)->update([
+                'store_credit' => $newCredit,
+                'updated_at' => now(),
+            ]);
+
+            // Append ledger entry
+            $ledgerId = (string) Str::uuid();
+            DB::table('customer_credit_ledgers')->insert([
+                'id' => $ledgerId,
+                'customer_id' => $id,
+                'amount_change' => $amountChange,
+                'entry_type' => $validated['entry_type'],
+                'reference_id' => $validated['reference_id'] ?? null,
+                'notes' => $validated['notes'] ?? 'Store credit adjustment',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Store credit balance updated successfully.',
+                'data' => [
+                    'customer_id' => $id,
+                    'previous_credit' => $currentCredit,
+                    'new_credit' => $newCredit,
+                    'amount_change' => $amountChange,
+                    'ledger_id' => $ledgerId,
+                ],
+            ]);
+        });
+    }
+
+    /**
+     * Accrue or Redeem Customer Loyalty Points
+     */
+    public function adjustLoyaltyPoints(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'points_change' => 'required|integer',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        $customer = DB::table('customers')->where('id', $id)->first();
+        if (!$customer) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Customer not found.',
+            ], 404);
+        }
+
+        $currentPoints = (int) ($customer->loyalty_points ?? 0);
+        $pointsChange = (int) $validated['points_change'];
+        $newPoints = max(0, $currentPoints + $pointsChange);
+
+        DB::table('customers')->where('id', $id)->update([
+            'loyalty_points' => $newPoints,
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Loyalty points updated.',
+            'data' => [
+                'customer_id' => $id,
+                'previous_points' => $currentPoints,
+                'new_points' => $newPoints,
+                'points_change' => $pointsChange,
+            ],
+        ]);
+    }
+
+    /**
+     * Convert 100 Loyalty Points into $1 Store Credit
+     */
+    public function convertPointsToCredit(Request $request, $id)
+    {
+        return DB::transaction(function () use ($id) {
+            $customer = DB::table('customers')->where('id', $id)->first();
+            if (!$customer) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Customer not found.',
+                ], 404);
+            }
+
+            $currentPoints = (int) ($customer->loyalty_points ?? 0);
+            if ($currentPoints < 100) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'At least 100 loyalty points are required for $1 store credit conversion.',
+                ], 422);
+            }
+
+            $conversionUnits = floor($currentPoints / 100);
+            $pointsToDeduct = $conversionUnits * 100;
+            $creditToAdd = $conversionUnits * 1.00;
+
+            $newPoints = $currentPoints - $pointsToDeduct;
+            $newCredit = (float) ($customer->store_credit ?? 0) + $creditToAdd;
+
+            DB::table('customers')->where('id', $id)->update([
+                'loyalty_points' => $newPoints,
+                'store_credit' => $newCredit,
+                'updated_at' => now(),
+            ]);
+
+            DB::table('customer_credit_ledgers')->insert([
+                'id' => (string) Str::uuid(),
+                'customer_id' => $id,
+                'amount_change' => $creditToAdd,
+                'entry_type' => 'points_conversion',
+                'reference_id' => null,
+                'notes' => "Converted {$pointsToDeduct} loyalty points into \${$creditToAdd} store credit",
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Converted {$pointsToDeduct} points into \${$creditToAdd} store credit.",
+                'data' => [
+                    'new_points' => $newPoints,
+                    'new_credit' => $newCredit,
+                ],
+            ]);
+        });
+    }
+
+    /**
+     * Get Customer Credit & Points Statement History
+     */
+    public function getHistory(Request $request, $id)
+    {
+        $customer = DB::table('customers')->where('id', $id)->first();
+        if (!$customer) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Customer not found.',
+            ], 404);
+        }
+
+        $ledgers = DB::table('customer_credit_ledgers')
+            ->where('customer_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'customer' => $customer,
+                'store_credit' => (float) ($customer->store_credit ?? 0),
+                'loyalty_points' => (int) ($customer->loyalty_points ?? 0),
+                'ledgers' => $ledgers,
+            ],
+        ]);
+    }
+}

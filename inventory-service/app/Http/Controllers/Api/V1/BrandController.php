@@ -47,8 +47,10 @@ class BrandController extends Controller
         ]);
 
         $slug = Str::slug($validated['name']) . '-' . rand(100, 999);
+        $id = (string) Str::uuid();
 
-        $id = DB::table('brands')->insertGetId([
+        DB::table('brands')->insert([
+            'id' => $id,
             'name' => $validated['name'],
             'slug' => $slug,
             'description' => $validated['description'] ?? null,

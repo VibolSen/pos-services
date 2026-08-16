@@ -99,7 +99,9 @@ class CheckoutService
             }
 
             // 5. Record Payment
-            $paymentId = DB::table('payments')->insertGetId([
+            $paymentId = (string) \Illuminate\Support\Str::uuid();
+            DB::table('payments')->insert([
+                'id' => $paymentId,
                 'sale_id' => $saleId,
                 'tender_type' => $data['tender_type'] ?? 'cash',
                 'amount' => $grandTotal,

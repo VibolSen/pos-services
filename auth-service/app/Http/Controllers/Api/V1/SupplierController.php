@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class SupplierController extends Controller
 {
@@ -43,8 +44,10 @@ class SupplierController extends Controller
         ]);
 
         $code = 'SUP-' . strtoupper(substr(uniqid(), -6));
+        $id = (string) Str::uuid();
 
-        $id = DB::table('suppliers')->insertGetId([
+        DB::table('suppliers')->insert([
+            'id' => $id,
             'name' => $validated['name'],
             'code' => $code,
             'contact_name' => $validated['contact_name'] ?? null,

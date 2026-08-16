@@ -53,9 +53,21 @@ class CheckoutService
             $grandTotal = ($subtotal - $discountTotal) + $taxTotal;
 
             // 3. Create Immutable Sale Header
-            $receiptNumber = 'REC-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+            $outlet = DB::table('outlets')->where('id', $data['outlet_id'])->first();
+            $outletCode = $outlet ? strtoupper($outlet->code) : 'MAIN';
 
-            $saleId = DB::table('sales')->insertGetId([
+            $todayCount = DB::table('sales')
+                ->where('outlet_id', $data['outlet_id'])
+                ->whereDate('created_at', now()->toDateString())
+                ->count();
+
+            $seqStr = str_pad($todayCount + 1, 5, '0', STR_PAD_LEFT);
+            $receiptNumber = "REC-{$outletCode}-" . date('Ymd') . "-{$seqStr}";
+
+            $saleId = (string) \Illuminate\Support\Str::uuid();
+
+            DB::table('sales')->insert([
+                'id' => $saleId,
                 'outlet_id' => $data['outlet_id'],
                 'register_id' => $data['register_id'],
                 'shift_id' => $data['shift_id'] ?? null,
@@ -68,6 +80,7 @@ class CheckoutService
                 'grand_total' => $grandTotal,
                 'currency' => $data['currency'] ?? 'USD',
                 'status' => 'completed',
+                'print_count' => 1,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -99,7 +112,9 @@ class CheckoutService
             }
 
             // 5. Record Payment
-            $paymentId = DB::table('payments')->insertGetId([
+            $paymentId = (string) \Illuminate\Support\Str::uuid();
+            DB::table('payments')->insert([
+                'id' => $paymentId,
                 'sale_id' => $saleId,
                 'tender_type' => $data['tender_type'] ?? 'cash',
                 'amount' => $grandTotal,

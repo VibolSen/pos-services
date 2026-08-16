@@ -14,11 +14,16 @@ class InventoryController extends Controller
         $status = $request->query('status');
         $search = $request->query('q');
 
-        $query = DB::table('inventory_balances as ib')
-            ->join('products as p', 'ib.product_id', '=', 'p.id')
+        $query = DB::table('products as p')
+            ->leftJoin('inventory_balances as ib', function ($join) use ($outletId) {
+                $join->on('p.id', '=', 'ib.product_id')
+                     ->where('ib.outlet_id', '=', $outletId);
+            })
             ->leftJoin('categories as c', 'p.category_id', '=', 'c.id')
-            ->join('outlets as o', 'ib.outlet_id', '=', 'o.id')
-            ->where('ib.outlet_id', $outletId);
+            ->leftJoin('outlets as o', function ($join) use ($outletId) {
+                $join->on('ib.outlet_id', '=', 'o.id');
+            })
+            ->where('p.is_active', true);
 
         if (!empty($search)) {
             $query->where(function ($q) use ($search) {
@@ -29,17 +34,17 @@ class InventoryController extends Controller
         }
 
         if ($status === 'low_stock') {
-            $query->whereRaw('ib.on_hand <= p.min_reorder_point');
+            $query->whereRaw('COALESCE(ib.on_hand, 0) <= COALESCE(p.min_reorder_point, 5)');
         } elseif ($status === 'out_of_stock') {
-            $query->where('ib.on_hand', '<=', 0);
+            $query->whereRaw('COALESCE(ib.on_hand, 0) <= 0');
         } elseif ($status === 'in_stock') {
-            $query->where('ib.on_hand', '>', 0);
+            $query->whereRaw('COALESCE(ib.on_hand, 0) > 0');
         }
 
         $balances = $query->select(
-                'ib.id as balance_id',
-                'ib.outlet_id',
-                'o.name as outlet_name',
+                DB::raw('COALESCE(ib.id, p.id) as balance_id'),
+                DB::raw("COALESCE(ib.outlet_id, {$outletId}) as outlet_id"),
+                DB::raw("COALESCE(o.name, 'Main Outlet') as outlet_name"),
                 'p.id as product_id',
                 'p.name as product_name',
                 'p.sku',
@@ -49,10 +54,10 @@ class InventoryController extends Controller
                 'p.image_url as image',
                 'p.min_reorder_point',
                 'c.name as category_name',
-                'ib.on_hand',
-                'ib.reserved',
-                DB::raw('(ib.on_hand - ib.reserved) as available'),
-                DB::raw('CASE WHEN ib.on_hand <= p.min_reorder_point THEN 1 ELSE 0 END as is_low_stock')
+                DB::raw('COALESCE(ib.on_hand, 0) as on_hand'),
+                DB::raw('COALESCE(ib.reserved, 0) as reserved'),
+                DB::raw('(COALESCE(ib.on_hand, 0) - COALESCE(ib.reserved, 0)) as available'),
+                DB::raw('CASE WHEN COALESCE(ib.on_hand, 0) <= COALESCE(p.min_reorder_point, 5) THEN 1 ELSE 0 END as is_low_stock')
             )
             ->orderBy('p.name', 'asc')
             ->get();

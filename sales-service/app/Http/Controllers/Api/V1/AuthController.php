@@ -13,15 +13,22 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
+            'email' => 'required',
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $loginInput = trim($request->email);
+
+        $query = User::where('email', $loginInput);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'phone')) {
+            $query->orWhere('phone', $loginInput);
+        }
+        $user = $query->first();
+
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['The provided credentials are incorrect.'],
+                'email' => ['The provided credentials (email or phone number) are incorrect.'],
             ]);
         }
 

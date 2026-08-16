@@ -49,12 +49,14 @@ class CategoryController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'parent_id' => 'nullable|integer|exists:categories,id',
+            'parent_id' => 'nullable|string|exists:categories,id',
         ]);
 
         $slug = Str::slug($validated['name']) . '-' . rand(100, 999);
+        $id = (string) Str::uuid();
 
-        $id = DB::table('categories')->insertGetId([
+        DB::table('categories')->insert([
+            'id' => $id,
             'name' => $validated['name'],
             'slug' => $slug,
             'parent_id' => $validated['parent_id'] ?? null,
@@ -73,7 +75,7 @@ class CategoryController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'parent_id' => 'nullable|integer|exists:categories,id',
+            'parent_id' => 'nullable|string|exists:categories,id',
         ]);
 
         DB::table('categories')->where('id', $id)->update([

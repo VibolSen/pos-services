@@ -79,14 +79,16 @@ class ShiftController extends Controller
 
         $validated = $request->validate([
             'opening_float' => 'required|numeric|min:0',
-            'outlet_id' => 'nullable|integer',
-            'register_id' => 'nullable|integer',
+            'outlet_id' => 'nullable|string',
+            'register_id' => 'nullable|string',
         ]);
 
         $outletId = $validated['outlet_id'] ?? $user->outlet_id ?? 1;
         $registerId = $validated['register_id'] ?? 1;
+        $shiftId = (string) \Illuminate\Support\Str::uuid();
 
-        $shiftId = DB::table('shifts')->insertGetId([
+        DB::table('shifts')->insert([
+            'id' => $shiftId,
             'outlet_id' => $outletId,
             'register_id' => $registerId,
             'user_id' => $user->id,
@@ -120,7 +122,10 @@ class ShiftController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Active open shift not found.'], 404);
         }
 
-        $movementId = DB::table('cash_drawer_movements')->insertGetId([
+        $movementId = (string) \Illuminate\Support\Str::uuid();
+
+        DB::table('cash_drawer_movements')->insert([
+            'id' => $movementId,
             'shift_id' => $shift->id,
             'user_id' => $request->user()->id,
             'type' => $validated['type'],
@@ -162,6 +167,34 @@ class ShiftController extends Controller
         $expectedCash = $shift->opening_float + $cashSales + $cashIn - $cashOut;
         $countedCash = (float)$validated['counted_cash'];
         $cashVariance = $countedCash - $expectedCash;
+
+        // Require Supervisor PIN authorization if cash variance exceeds threshold ($5.00)
+        if (abs($cashVariance) > 5.00) {
+            $supervisorPin = $request->input('supervisor_pin');
+            $userRole = $request->user()->role ?? 'cashier';
+            
+            if (!in_array($userRole, ['supervisor', 'outlet_manager', 'admin', 'super_admin'])) {
+                if (empty($supervisorPin)) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Cash drawer variance exceeds threshold ($5.00). Supervisor PIN authorization is required.',
+                        'cash_variance' => $cashVariance,
+                    ], 403);
+                }
+
+                $supervisor = DB::table('users')
+                    ->where('pin_code', $supervisorPin)
+                    ->whereIn('role', ['supervisor', 'outlet_manager', 'admin', 'super_admin'])
+                    ->first();
+
+                if (!$supervisor) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Invalid Supervisor PIN code.',
+                    ], 403);
+                }
+            }
+        }
 
         DB::table('shifts')->where('id', $shift->id)->update([
             'closed_at' => now(),

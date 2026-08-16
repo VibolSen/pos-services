@@ -1,0 +1,181 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class RoleController extends Controller
+{
+    /**
+     * List all dynamic roles with permission counts and pivot assignments.
+     */
+    public function index(Request $request)
+    {
+        $roles = DB::table('roles')
+            ->orderBy('is_system', 'desc')
+            ->orderBy('name', 'asc')
+            ->get();
+
+        foreach ($roles as $role) {
+            $role->is_system = (bool) $role->is_system;
+
+            $permissionIds = DB::table('role_permissions')
+                ->where('role_id', $role->id)
+                ->pluck('permission_id')
+                ->toArray();
+
+            $role->permission_ids = $permissionIds;
+            $role->permissions_count = count($permissionIds);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $roles,
+        ]);
+    }
+
+    /**
+     * Create a new dynamic custom role.
+     */
+    public function store(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'permission_ids' => 'nullable|array',
+            'permission_ids.*' => 'string',
+        ]);
+
+        $slug = \Illuminate\Support\Str::slug($request->name, '_');
+        $id = (string) \Illuminate\Support\Str::uuid();
+
+        // Ensure unique slug
+        $existing = DB::table('roles')->where('slug', $slug)->first();
+        if ($existing) {
+            $slug .= '_' . substr(md5(microtime()), 0, 4);
+        }
+
+        DB::table('roles')->insert([
+            'id' => $id,
+            'company_id' => $request->company_id ?? null,
+            'name' => $request->name,
+            'slug' => $slug,
+            'description' => $request->description,
+            'is_system' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        if ($request->has('permission_ids') && is_array($request->permission_ids)) {
+            foreach ($request->permission_ids as $permId) {
+                DB::table('role_permissions')->insert([
+                    'role_id' => $id,
+                    'permission_id' => $permId,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Custom role created successfully.',
+            'data' => DB::table('roles')->where('id', $id)->first(),
+        ], 201);
+    }
+
+    /**
+     * View single role details with permissions.
+     */
+    public function show($id)
+    {
+        $role = DB::table('roles')->where('id', $id)->first();
+        if (!$role) {
+            return response()->json(['success' => false, 'message' => 'Role not found.'], 404);
+        }
+
+        $role->is_system = (bool) $role->is_system;
+
+        $permissions = DB::table('role_permissions')
+            ->join('permissions', 'permissions.id', '=', 'role_permissions.permission_id')
+            ->where('role_permissions.role_id', $id)
+            ->select('permissions.*')
+            ->get();
+
+        $role->permissions = $permissions;
+        $role->permission_ids = $permissions->pluck('id')->toArray();
+
+        return response()->json([
+            'success' => true,
+            'data' => $role,
+        ]);
+    }
+
+    /**
+     * Update an existing custom role and sync permission assignments.
+     */
+    public function update(Request $request, $id)
+    {
+        $role = DB::table('roles')->where('id', $id)->first();
+        if (!$role) {
+            return response()->json(['success' => false, 'message' => 'Role not found.'], 404);
+        }
+
+        $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'permission_ids' => 'nullable|array',
+        ]);
+
+        $updateData = ['updated_at' => now()];
+        if ($request->has('name')) {
+            $updateData['name'] = $request->name;
+        }
+        if ($request->has('description')) {
+            $updateData['description'] = $request->description;
+        }
+
+        DB::table('roles')->where('id', $id)->update($updateData);
+
+        if ($request->has('permission_ids')) {
+            DB::table('role_permissions')->where('role_id', $id)->delete();
+
+            if (is_array($request->permission_ids)) {
+                foreach ($request->permission_ids as $permId) {
+                    DB::table('role_permissions')->insert([
+                        'role_id' => $id,
+                        'permission_id' => $permId,
+                    ]);
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Role permissions updated successfully.',
+        ]);
+    }
+
+    /**
+     * Delete a custom role (protect system roles).
+     */
+    public function destroy($id)
+    {
+        $role = DB::table('roles')->where('id', $id)->first();
+        if (!$role) {
+            return response()->json(['success' => false, 'message' => 'Role not found.'], 404);
+        }
+
+        if ($role->is_system) {
+            return response()->json(['success' => false, 'message' => 'System default roles cannot be deleted.'], 422);
+        }
+
+        DB::table('role_permissions')->where('role_id', $id)->delete();
+        DB::table('roles')->where('id', $id)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Custom role deleted successfully.',
+        ]);
+    }
+}

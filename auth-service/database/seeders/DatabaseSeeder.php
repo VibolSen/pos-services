@@ -15,29 +15,39 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // 0. Seed Roles and Permissions First
+        $this->call(RoleAndPermissionSeeder::class);
         // 1. Outlet & Register First
-        $outletId = (string) Str::uuid();
-        DB::table('outlets')->insert([
-            'id' => $outletId,
-            'name' => 'Phnom Penh Main Outlet',
-            'code' => 'PP-01',
-            'address' => 'Monivong Blvd, Phnom Penh',
-            'phone' => '+855 23 123 456',
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingOutlet = DB::table('outlets')->where('code', 'PP-01')->first();
+        if ($existingOutlet) {
+            $outletId = $existingOutlet->id;
+        } else {
+            $outletId = (string) Str::uuid();
+            DB::table('outlets')->insert([
+                'id' => $outletId,
+                'name' => 'Phnom Penh Main Outlet',
+                'code' => 'PP-01',
+                'address' => 'Monivong Blvd, Phnom Penh',
+                'phone' => '+855 23 123 456',
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        $registerId = (string) Str::uuid();
-        DB::table('registers')->insert([
-            'id' => $registerId,
-            'outlet_id' => $outletId,
-            'name' => 'Register #1',
-            'code' => 'REG-01',
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingRegister = DB::table('registers')->where('code', 'REG-01')->first();
+        if (!$existingRegister) {
+            $registerId = (string) Str::uuid();
+            DB::table('registers')->insert([
+                'id' => $registerId,
+                'outlet_id' => $outletId,
+                'name' => 'Register #1',
+                'code' => 'REG-01',
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // 2. Seed Users across all 8 RBAC Roles
         $users = [
@@ -108,89 +118,109 @@ class DatabaseSeeder extends Seeder
         }
 
         // 3. Categories
-        $beveragesId = (string) Str::uuid();
-        DB::table('categories')->insert([
-            'id' => $beveragesId,
-            'name' => 'Beverages',
-            'slug' => 'beverages',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingBev = DB::table('categories')->where('slug', 'beverages')->first();
+        if ($existingBev) {
+            $beveragesId = $existingBev->id;
+        } else {
+            $beveragesId = (string) Str::uuid();
+            DB::table('categories')->insert([
+                'id' => $beveragesId,
+                'name' => 'Beverages',
+                'slug' => 'beverages',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        $snacksId = (string) Str::uuid();
-        DB::table('categories')->insert([
-            'id' => $snacksId,
-            'name' => 'Snacks',
-            'slug' => 'snacks',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingSnk = DB::table('categories')->where('slug', 'snacks')->first();
+        if ($existingSnk) {
+            $snacksId = $existingSnk->id;
+        } else {
+            $snacksId = (string) Str::uuid();
+            DB::table('categories')->insert([
+                'id' => $snacksId,
+                'name' => 'Snacks',
+                'slug' => 'snacks',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // 4. Products
-        $p1 = (string) Str::uuid();
-        DB::table('products')->insert([
-            'id' => $p1,
-            'category_id' => $beveragesId,
-            'name' => 'Iced Americano',
-            'sku' => 'BEV-AME-01',
-            'description' => 'Cold brew iced coffee',
-            'cost_price' => 1.20,
-            'selling_price' => 2.50,
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if (!DB::table('products')->where('sku', 'BEV-AME-01')->exists()) {
+            $p1 = (string) Str::uuid();
+            DB::table('products')->insert([
+                'id' => $p1,
+                'category_id' => $beveragesId,
+                'name' => 'Iced Americano',
+                'sku' => 'BEV-AME-01',
+                'description' => 'Cold brew iced coffee',
+                'cost_price' => 1.20,
+                'selling_price' => 2.50,
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        $p2 = (string) Str::uuid();
-        DB::table('products')->insert([
-            'id' => $p2,
-            'category_id' => $beveragesId,
-            'name' => 'Iced Latte',
-            'sku' => 'BEV-LAT-01',
-            'description' => 'Espresso with fresh milk',
-            'cost_price' => 1.50,
-            'selling_price' => 3.00,
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if (!DB::table('products')->where('sku', 'BEV-LAT-01')->exists()) {
+            $p2 = (string) Str::uuid();
+            DB::table('products')->insert([
+                'id' => $p2,
+                'category_id' => $beveragesId,
+                'name' => 'Iced Latte',
+                'sku' => 'BEV-LAT-01',
+                'description' => 'Espresso with fresh milk',
+                'cost_price' => 1.50,
+                'selling_price' => 3.00,
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        $p3 = (string) Str::uuid();
-        DB::table('products')->insert([
-            'id' => $p3,
-            'category_id' => $snacksId,
-            'name' => 'Butter Croissant',
-            'sku' => 'SNK-CRO-01',
-            'description' => 'Freshly baked croissant',
-            'cost_price' => 0.80,
-            'selling_price' => 2.00,
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if (!DB::table('products')->where('sku', 'SNK-CRO-01')->exists()) {
+            $p3 = (string) Str::uuid();
+            DB::table('products')->insert([
+                'id' => $p3,
+                'category_id' => $snacksId,
+                'name' => 'Butter Croissant',
+                'sku' => 'SNK-CRO-01',
+                'description' => 'Freshly baked croissant',
+                'cost_price' => 0.80,
+                'selling_price' => 2.00,
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // 5. Initial Inventory Balances
-        foreach ([$p1, $p2, $p3] as $productId) {
-            DB::table('inventory_balances')->insert([
-                'id' => (string) Str::uuid(),
-                'outlet_id' => $outletId,
-                'product_id' => $productId,
-                'on_hand' => 100,
-                'available' => 100,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+        $productIds = DB::table('products')->pluck('id')->toArray();
+        foreach ($productIds as $productId) {
+            $hasBal = DB::table('inventory_balances')->where('product_id', $productId)->exists();
+            if (!$hasBal) {
+                DB::table('inventory_balances')->insert([
+                    'id' => (string) Str::uuid(),
+                    'outlet_id' => $outletId,
+                    'product_id' => $productId,
+                    'on_hand' => 100,
+                    'available' => 100,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-            DB::table('inventory_movements')->insert([
-                'id' => (string) Str::uuid(),
-                'outlet_id' => $outletId,
-                'product_id' => $productId,
-                'quantity_change' => 100,
-                'movement_type' => 'receive',
-                'created_by' => $adminUser ? $adminUser->id : (string) Str::uuid(),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+                DB::table('inventory_movements')->insert([
+                    'id' => (string) Str::uuid(),
+                    'outlet_id' => $outletId,
+                    'product_id' => $productId,
+                    'quantity_change' => 100,
+                    'movement_type' => 'receive',
+                    'created_by' => $adminUser ? $adminUser->id : (string) Str::uuid(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
         }
     }
 }
