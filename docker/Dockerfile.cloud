@@ -1,0 +1,40 @@
+FROM php:8.2-cli-alpine
+
+# Install system dependencies & PHP extensions
+RUN apk add --no-cache \
+    bash \
+    curl \
+    git \
+    libpng-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    mysql-client \
+    linux-headers \
+    && docker-php-ext-install pdo_mysql bcmath zip sockets
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+# Copy service source code
+ARG SERVICE_DIR=.
+COPY ${SERVICE_DIR} /var/www/html
+
+# Install Composer dependencies
+RUN if [ -f "composer.json" ]; then \
+    composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction; \
+    fi
+
+# Ensure storage permissions
+RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chmod -R 777 storage bootstrap/cache 2>/dev/null || true
+
+EXPOSE 8000
+
+# Copy Entrypoint Script
+COPY ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -81,10 +81,43 @@ class TenantController extends Controller
             'updated_at'    => now(),
         ]);
 
+        // 3. Automatically provision Default Primary Store Outlet & Register for this tenant
+        $outletId = (string) Str::uuid();
+        $outletCode = 'STR-' . strtoupper(Str::random(4));
+        DB::table('outlets')->insert([
+            'id'             => $outletId,
+            'name'           => $request->name . ' - Main Store',
+            'code'           => $outletCode,
+            'phone'          => $request->phone,
+            'address'        => $request->address,
+            'receipt_header' => 'Welcome to ' . $request->name,
+            'receipt_footer' => 'Thank you for shopping with us!',
+            'is_active'      => true,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        DB::table('registers')->insert([
+            'id'         => (string) Str::uuid(),
+            'outlet_id'  => $outletId,
+            'name'       => 'Register #1 (Main)',
+            'code'       => 'REG-01',
+            'is_active'  => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         return response()->json([
             'success' => true,
             'message' => 'Tenant workspace registered successfully! Your 14-day trial has started.',
-            'data'    => DB::table('tenants')->where('id', $id)->first(),
+            'data'    => array_merge(
+                (array) DB::table('tenants')->where('id', $id)->first(),
+                [
+                    'outlet_id'   => $outletId,
+                    'outlet_name' => $request->name . ' - Main Store',
+                    'outlet_code' => $outletCode,
+                ]
+            ),
         ], 201);
     }
 

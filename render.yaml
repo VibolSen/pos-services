@@ -1,0 +1,202 @@
+services:
+  # ============================================================================
+  # 1. Nginx API Gateway (Public Web Service)
+  # ============================================================================
+  - type: web
+    name: pos-api-gateway
+    env: docker
+    dockerfilePath: ./gateway/Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt # Or oregon (match your Aiven MySQL region)
+    envVars:
+      - key: PORT
+        value: 80
+
+  # ============================================================================
+  # 2. Auth & Identity Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: auth-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./auth-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Auth Service"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false # Set to your Aiven Host in Render Dashboard
+      - key: DB_PORT
+        sync: false # Set to your Aiven Port (e.g. 24582)
+      - key: DB_DATABASE
+        value: auth_db
+      - key: DB_USERNAME
+        sync: false # Set to your Aiven User (avnadmin)
+      - key: DB_PASSWORD
+        sync: false # Set to your Aiven Password
+
+  # ============================================================================
+  # 3. Catalog & Pricing Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: catalog-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./catalog-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Catalog Service"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_DATABASE
+        value: catalog_db
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+  # ============================================================================
+  # 4. Inventory & Stock Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: inventory-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./inventory-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Inventory Service"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_DATABASE
+        value: inventory_db
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+  # ============================================================================
+  # 5. Sales & Checkout Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: sales-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./sales-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Sales Service"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_DATABASE
+        value: sales_db
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+  # ============================================================================
+  # 6. Payment & Financial Reconciliation Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: payment-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./payment-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Payment Service"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_DATABASE
+        value: payment_db
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+  # ============================================================================
+  # 7. Shift & Register Workstation Service (Private Service)
+  # ============================================================================
+  - type: pserv
+    name: shift-service
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.cloud
+    dockerContext: .
+    dockerBuildArgs:
+      - key: SERVICE_DIR
+        value: ./shift-service
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: APP_NAME
+        value: "POS Shift Service"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_DATABASE
+        value: shift_db
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
