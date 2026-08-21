@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Gate;
 use Dedoc\Scramble\Scramble;
 
 class AppServiceProvider extends ServiceProvider
@@ -20,12 +21,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        if (class_exists(\Dedoc\Scramble\Scramble::class)) {
-            \Dedoc\Scramble\Scramble::configure()
+        if (class_exists(Scramble::class)) {
+            // Allow public viewing of API documentation on cloud deployments
+            Gate::define('viewApiDocs', fn () => true);
+
+            Scramble::configure()
                 ->routes(fn ($route) => str_starts_with($route->uri(), 'api/'));
         }
     }
-
-
 }
-
