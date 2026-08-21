@@ -27,10 +27,11 @@ for svc in "${SERVICES[@]}"; do
             php artisan route:clear 2>/dev/null || true
         fi
         
-        # 4. Check and run database migrations if DB is set
-        if [ -n "$DB_HOST" ] && [ -f "artisan" ]; then
-            echo "Running migrations for $svc..."
+        # 4. Check and run database migrations and seed default data
+        if [ -f "artisan" ]; then
+            echo "Running migrations and seeds for $svc..."
             php artisan migrate --force 2>/dev/null || echo "[Notice] Migration skipped for $svc."
+            php artisan db:seed --force 2>/dev/null || echo "[Notice] Seeding skipped for $svc."
         fi
     fi
 done
