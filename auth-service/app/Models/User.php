@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,6 +20,7 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
+        'tenant_id',
         'name',
         'email',
         'password',
@@ -28,8 +28,12 @@ class User extends Authenticatable
         'outlet_id',
         'phone',
         'pin_code',
+        'is_active',
+        'failed_login_attempts',
+        'lockout_until',
+        'two_factor_secret',
+        'two_factor_enabled',
     ];
-
 
     /**
      * The attributes that should be hidden for serialization.
@@ -39,6 +43,8 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'pin_code',
+        'two_factor_secret',
     ];
 
     /**
@@ -51,6 +57,14 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'lockout_until' => 'datetime',
+            'two_factor_enabled' => 'boolean',
+            'is_active' => 'boolean',
         ];
+    }
+
+    public function isLockedOut(): bool
+    {
+        return $this->lockout_until && $this->lockout_until->isFuture();
     }
 }

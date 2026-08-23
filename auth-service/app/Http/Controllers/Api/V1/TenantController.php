@@ -274,4 +274,68 @@ class TenantController extends Controller
             'status'  => $newStatus,
         ]);
     }
+
+    /**
+     * Get Real-time Subscription Quota Usage for active tenant.
+     * GET /api/v1/tenants/quota-usage
+     */
+    public function quotaUsage(Request $request)
+    {
+        $user = $request->user();
+        $tenantId = $user?->tenant_id;
+        $activeWorkspace = $request->header('X-Tenant-Workspace');
+
+        $tenantQuery = DB::table('tenants');
+        if ($tenantId) {
+            $tenantQuery->where('id', $tenantId);
+        } elseif (!empty($activeWorkspace) && $activeWorkspace !== 'No Organization Yet! Please Create') {
+            $tenantQuery->where('name', $activeWorkspace)->orWhere('slug', $activeWorkspace);
+        }
+
+        $tenant = $tenantQuery->first() ?? DB::table('tenants')->first();
+
+        $tier = $tenant->client_tier ?? 'free_personal';
+        $maxUsers = $tenant->max_users ?? ($tier === 'enterprise_org' ? 500 : ($tier === 'business_runner' ? 50 : 5));
+        $maxOutlets = $tenant->max_outlets ?? ($tier === 'enterprise_org' ? 50 : ($tier === 'business_runner' ? 5 : 1));
+        $maxRegisters = $tenant->max_registers ?? ($tier === 'enterprise_org' ? 200 : ($tier === 'business_runner' ? 15 : 2));
+
+        $usersCount = DB::table('users')->where('role', '!=', 'super_admin')->count();
+        $outletsCount = DB::table('outlets')->count();
+        $registersCount = DB::table('registers')->count();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'tenant' => [
+                    'id' => $tenant->id ?? null,
+                    'name' => $tenant->name ?? 'Default Workspace',
+                    'slug' => $tenant->slug ?? 'default',
+                    'client_tier' => $tier,
+                    'status' => $tenant->status ?? 'active',
+                    'trial_ends_at' => $tenant->trial_ends_at ?? null,
+                ],
+                'quotas' => [
+                    'users' => [
+                        'used' => $usersCount,
+                        'limit' => $maxUsers,
+                        'percentage' => $maxUsers > 0 ? round(($usersCount / $maxUsers) * 100, 1) : 0,
+                        'is_exceeded' => $usersCount >= $maxUsers,
+                    ],
+                    'outlets' => [
+                        'used' => $outletsCount,
+                        'limit' => $maxOutlets,
+                        'percentage' => $maxOutlets > 0 ? round(($outletsCount / $maxOutlets) * 100, 1) : 0,
+                        'is_exceeded' => $outletsCount >= $maxOutlets,
+                    ],
+                    'registers' => [
+                        'used' => $registersCount,
+                        'limit' => $maxRegisters,
+                        'percentage' => $maxRegisters > 0 ? round(($registersCount / $maxRegisters) * 100, 1) : 0,
+                        'is_exceeded' => $registersCount >= $maxRegisters,
+                    ],
+                ],
+            ],
+        ]);
+    }
 }
+

@@ -5,6 +5,9 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\LogRequestActivity;
+use App\Http\Middleware\TenantQuotaMiddleware;
+use App\Http\Middleware\ApiKeyMiddleware;
+use App\Http\Middleware\RateLimitAuthMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -17,6 +20,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(LogRequestActivity::class);
         $middleware->alias([
             'role' => EnsureRole::class,
+            'quota' => TenantQuotaMiddleware::class,
+            'api_key' => ApiKeyMiddleware::class,
+            'auth_throttle' => RateLimitAuthMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

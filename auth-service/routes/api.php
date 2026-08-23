@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\GiftCardController;
 use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\TenantController;
+use App\Http\Controllers\Api\V1\ApiKeyController;
 
 Route::prefix('v1')->group(function () {
     // Health Check Endpoint for Auth Microservice
@@ -26,9 +27,16 @@ Route::prefix('v1')->group(function () {
         ]);
     });
 
-    // Public Auth Routes
-    Route::post('/auth/login', [AuthController::class, 'login']);
+    // Public Auth Routes (with Brute-Force Rate Limiting)
+    Route::middleware('auth_throttle:5,15')->group(function () {
+        Route::post('/auth/login', [AuthController::class, 'login']);
+        Route::post('/auth/quick-switch', [AuthController::class, 'quickSwitch']);
+    });
     Route::post('/auth/register', [AuthController::class, 'register']);
+
+    // Staff Invitation Verification & Acceptance (Public)
+    Route::get('/auth/verify-invite', [AuthController::class, 'verifyInvite']);
+    Route::post('/auth/accept-invite', [AuthController::class, 'acceptInvite']);
 
     // Public Tenant Self-Registration
     Route::post('/tenants/register', [TenantController::class, 'register']);
@@ -37,6 +45,21 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+        // Active Devices & Session Management
+        Route::get('/auth/sessions', [AuthController::class, 'sessions']);
+        Route::delete('/auth/sessions/{id}', [AuthController::class, 'revokeSession']);
+        Route::post('/auth/logout-all-devices', [AuthController::class, 'logoutAllDevices']);
+        Route::post('/auth/2fa/toggle', [AuthController::class, 'toggle2fa']);
+
+        // Subscription Quota Usage
+        Route::get('/tenants/quota-usage', [TenantController::class, 'quotaUsage']);
+
+        // Developer / Merchant API Keys
+        Route::get('/api-keys', [ApiKeyController::class, 'index']);
+        Route::post('/api-keys', [ApiKeyController::class, 'store']);
+        Route::delete('/api-keys/{id}', [ApiKeyController::class, 'destroy']);
+        Route::put('/api-keys/{id}/toggle', [ApiKeyController::class, 'toggle']);
 
         // User & Staff Dynamic RBAC Management
         Route::middleware('role:admin,super_admin,outlet_manager')->group(function () {
@@ -51,9 +74,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/gift-cards', [GiftCardController::class, 'index']);
             Route::post('/gift-cards', [GiftCardController::class, 'store']);
+
+            // User management with Quota Enforcement
             Route::get('/users', [UserController::class, 'index']);
             Route::get('/roles/permissions', [UserController::class, 'permissions']);
-            Route::post('/users', [UserController::class, 'store']);
+            Route::post('/users', [UserController::class, 'store'])->middleware('quota:users');
+            Route::post('/users/invite', [UserController::class, 'invite'])->middleware('quota:users');
             Route::put('/users/{id}', [UserController::class, 'update']);
             Route::post('/users/{id}/reset-password', [UserController::class, 'resetPassword']);
             Route::delete('/users/{id}', [UserController::class, 'destroy']);
@@ -74,9 +100,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/customers/{id}/convert-points', [CustomerLoyaltyController::class, 'convertPointsToCredit']);
             Route::get('/customers/{id}/history', [CustomerLoyaltyController::class, 'getHistory']);
 
-            // Outlets CRUD
+            // Outlets CRUD with Quota Enforcement
             Route::get('/outlets', [OutletController::class, 'index']);
-            Route::post('/outlets', [OutletController::class, 'store']);
+            Route::post('/outlets', [OutletController::class, 'store'])->middleware('quota:outlets');
             Route::put('/outlets/{id}', [OutletController::class, 'update']);
             Route::delete('/outlets/{id}', [OutletController::class, 'destroy']);
 
@@ -105,4 +131,3 @@ Route::prefix('v1')->group(function () {
         });
     });
 });
-
