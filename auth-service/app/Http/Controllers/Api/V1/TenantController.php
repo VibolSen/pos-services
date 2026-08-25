@@ -17,20 +17,33 @@ class TenantController extends Controller
     {
         $request->validate([
             'name'        => 'required|string|max:255',
-            'email'       => 'required|email|unique:tenants,email',
-            'client_tier' => 'required|in:free_personal,business_runner,enterprise_org',
+            'email'       => 'nullable|email',
+            'client_tier' => 'nullable|in:free_personal,business_runner,enterprise_org',
             'phone'       => 'nullable|string|max:30',
             'address'     => 'nullable|string|max:500',
             'country'     => 'nullable|string|max:10',
         ]);
 
+        $clientTier = $request->client_tier ?? 'business_runner';
         $slug = Str::slug($request->name);
         $existing = DB::table('tenants')->where('slug', $slug)->first();
         if ($existing) {
             $slug .= '-' . Str::random(4);
         }
 
-        $limits = match ($request->client_tier) {
+        // Ensure email is unique in tenants table without failing valid registrations
+        $email = $request->email;
+        if (empty($email)) {
+            $email = $slug . '@codebridges.app';
+        } else {
+            $emailTaken = DB::table('tenants')->where('email', $email)->exists();
+            if ($emailTaken) {
+                $parts = explode('@', $email);
+                $email = $parts[0] . '+' . Str::lower(Str::random(4)) . '@' . ($parts[1] ?? 'codebridges.app');
+            }
+        }
+
+        $limits = match ($clientTier) {
             'enterprise_org'  => ['max_outlets' => 50, 'max_registers' => 200, 'max_users' => 500],
             'business_runner' => ['max_outlets' => 5,  'max_registers' => 15,  'max_users' => 50],
             default           => ['max_outlets' => 1,  'max_registers' => 2,   'max_users' => 5],
@@ -43,9 +56,9 @@ class TenantController extends Controller
             'name'          => $request->name,
             'slug'          => $slug,
             'company_code'  => 'CB-' . strtoupper(Str::random(6)),
-            'client_tier'   => $request->client_tier,
+            'client_tier'   => $clientTier,
             'status'        => 'trial',
-            'email'         => $request->email,
+            'email'         => $email,
             'phone'         => $request->phone,
             'address'       => $request->address,
             'country'       => $request->country ?? 'KH',
@@ -64,7 +77,7 @@ class TenantController extends Controller
             'enterprise_org'  => ['plan' => 'Enterprise Organization',   'price' => 199.00],
         ];
 
-        $planInfo = $planMap[$request->client_tier];
+        $planInfo = $planMap[$clientTier];
 
         DB::table('tenant_subscriptions')->insert([
             'id'            => (string) Str::uuid(),
@@ -106,6 +119,14 @@ class TenantController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        // Link authenticated user to new tenant workspace
+        if ($request->user()) {
+            DB::table('users')->where('id', $request->user()->id)->update([
+                'tenant_id' => $id,
+                'updated_at' => now(),
+            ]);
+        }
 
         return response()->json([
             'success' => true,
