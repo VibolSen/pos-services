@@ -23,39 +23,34 @@ for i in "${!SERVICES[@]}"; do
     if [ -d "/var/www/$svc" ]; then
         cd "/var/www/$svc"
         
-        # Setup storage and cache directories
+        # 1. Setup storage and cache directories
         mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
         chmod -R 777 storage bootstrap/cache 2>/dev/null || true
         
-        # Ensure .env exists
-        if [ ! -f ".env" ]; then
-            if [ -f ".env.example" ]; then
-                cp .env.example .env
-            else
-                touch .env
-            fi
-        fi
+        # 2. Write complete .env file with active Cloud Database credentials
+        cat <<EOF > .env
+APP_NAME=POS-${svc}
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=http://localhost
+APP_KEY=
 
-        # Inject Database configuration
-        if [ -n "$DB_HOST" ]; then
-            sed -i "s/^DB_CONNECTION=.*/DB_CONNECTION=mysql/g" .env 2>/dev/null || echo "DB_CONNECTION=mysql" >> .env
-            sed -i "s/^DB_HOST=.*/DB_HOST=$DB_HOST/g" .env 2>/dev/null || echo "DB_HOST=$DB_HOST" >> .env
-            sed -i "s/^DB_PORT=.*/DB_PORT=${DB_PORT:-3306}/g" .env 2>/dev/null || echo "DB_PORT=${DB_PORT:-3306}" >> .env
-            sed -i "s/^DB_DATABASE=.*/DB_DATABASE=$db_name/g" .env 2>/dev/null || echo "DB_DATABASE=$db_name" >> .env
-            if [ -n "$DB_USERNAME" ]; then
-                sed -i "s/^DB_USERNAME=.*/DB_USERNAME=$DB_USERNAME/g" .env 2>/dev/null || echo "DB_USERNAME=$DB_USERNAME" >> .env
-            fi
-            if [ -n "$DB_PASSWORD" ]; then
-                sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/g" .env 2>/dev/null || echo "DB_PASSWORD=$DB_PASSWORD" >> .env
-            fi
-        fi
+DB_CONNECTION=mysql
+DB_HOST=${DB_HOST:-127.0.0.1}
+DB_PORT=${DB_PORT:-3306}
+DB_DATABASE=${db_name}
+DB_USERNAME=${DB_USERNAME:-root}
+DB_PASSWORD=${DB_PASSWORD:-}
 
-        # Enforce file-based sessions and cache (prevents DB session lookups on Swagger docs / health checks)
-        sed -i "s/^SESSION_DRIVER=.*/SESSION_DRIVER=file/g" .env 2>/dev/null || echo "SESSION_DRIVER=file" >> .env
-        sed -i "s/^CACHE_STORE=.*/CACHE_STORE=file/g" .env 2>/dev/null || echo "CACHE_STORE=file" >> .env
-        sed -i "s/^QUEUE_CONNECTION=.*/QUEUE_CONNECTION=sync/g" .env 2>/dev/null || echo "QUEUE_CONNECTION=sync" >> .env
+SESSION_DRIVER=file
+CACHE_STORE=file
+QUEUE_CONNECTION=sync
 
-        # Generate APP_KEY if missing
+LOG_CHANNEL=stack
+LOG_LEVEL=debug
+EOF
+
+        # 3. Generate APP_KEY and clear caches
         if [ -f "artisan" ]; then
             php artisan key:generate --force 2>/dev/null || true
             php artisan config:clear 2>/dev/null || true
