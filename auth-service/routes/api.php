@@ -127,6 +127,7 @@ Route::prefix('v1')->group(function () {
         // Super Admin Tenant Management Routes
         Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
             Route::get('/tenants', [TenantController::class, 'index']);
+            Route::post('/tenants', [TenantController::class, 'register']);
             Route::get('/tenants/{id}', [TenantController::class, 'show']);
             Route::put('/tenants/{id}/subscription', [TenantController::class, 'updateSubscription']);
             Route::post('/tenants/{id}/suspend', [TenantController::class, 'suspend']);
