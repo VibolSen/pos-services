@@ -74,7 +74,12 @@ for i in "${!SERVICES[@]}"; do
             fi
         fi
 
-        # 3. Generate APP_KEY if missing or empty
+        # 3. Enforce file-based sessions and cache (Swagger and Web Docs never touch SQL sessions)
+        sed -i "s/^SESSION_DRIVER=.*/SESSION_DRIVER=file/g" .env 2>/dev/null || echo "SESSION_DRIVER=file" >> .env
+        sed -i "s/^CACHE_STORE=.*/CACHE_STORE=file/g" .env 2>/dev/null || echo "CACHE_STORE=file" >> .env
+        sed -i "s/^QUEUE_CONNECTION=.*/QUEUE_CONNECTION=sync/g" .env 2>/dev/null || echo "QUEUE_CONNECTION=sync" >> .env
+
+        # 4. Generate APP_KEY if missing or empty
         if [ -f "artisan" ]; then
             php artisan key:generate --force 2>/dev/null || true
             php artisan config:clear 2>/dev/null || true
