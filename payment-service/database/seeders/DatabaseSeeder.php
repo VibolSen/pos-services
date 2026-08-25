@@ -42,12 +42,6 @@ class DatabaseSeeder extends Seeder
         // 2. Seed Users across all 8 RBAC Roles
         $users = [
             [
-                'email' => 'superadmin@pos.com',
-                'name' => 'Platform Super Admin',
-                'role' => 'super_admin',
-                'password' => Hash::make('password'),
-            ],
-            [
                 'email' => 'vibolsen2002@gmail.com',
                 'name' => 'Vibol',
                 'role' => 'super_admin',
