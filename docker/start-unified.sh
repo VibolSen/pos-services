@@ -5,6 +5,13 @@ echo "=========================================================="
 echo "🚀 Initializing CodeBridges Enterprise Cloud Services"
 echo "=========================================================="
 
+# 0. Ensure system run and log directories exist for Nginx and Supervisor
+mkdir -p /run/nginx /var/log/nginx /var/log/supervisor /var/run
+
+PORT_TO_LISTEN="${PORT:-80}"
+echo "🌐 Configuring Nginx to bind on port ${PORT_TO_LISTEN}..."
+sed -i "s/listen 80;/listen ${PORT_TO_LISTEN};/g" /etc/nginx/nginx.conf
+
 SERVICES=("auth-service" "catalog-service" "inventory-service" "sales-service" "payment-service" "shift-service")
 
 for svc in "${SERVICES[@]}"; do
@@ -36,5 +43,8 @@ for svc in "${SERVICES[@]}"; do
     fi
 done
 
-echo "Starting Supervisor (Nginx + 6 Microservices)..."
+echo "Verifying Nginx configuration syntax..."
+nginx -t || true
+
+echo "Starting Supervisor (Nginx on port ${PORT_TO_LISTEN} + 6 Microservices)..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

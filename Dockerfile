@@ -17,7 +17,8 @@ RUN apk add --no-cache \
     unzip \
     mysql-client \
     linux-headers \
-    && docker-php-ext-install pdo_mysql bcmath zip sockets
+    && docker-php-ext-install pdo_mysql bcmath zip sockets \
+    && mkdir -p /run/nginx /var/log/nginx /var/log/supervisor /var/run
 
 # 2. Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
