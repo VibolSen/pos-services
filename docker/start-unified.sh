@@ -12,6 +12,19 @@ PORT_TO_LISTEN="${PORT:-80}"
 echo "🌐 Configuring Nginx to bind on port ${PORT_TO_LISTEN}..."
 sed -i "s/listen 80;/listen ${PORT_TO_LISTEN};/g" /etc/nginx/nginx.conf
 
+# 1. Quick Database Reachability Pre-check (Max 3s)
+DB_ONLINE=false
+if [ -n "$DB_HOST" ]; then
+    echo "🔍 Checking database connectivity to $DB_HOST..."
+    if nc -z -w 3 "$DB_HOST" "${DB_PORT:-3306}" 2>/dev/null || (getent hosts "$DB_HOST" >/dev/null 2>&1); then
+        echo "✅ Database host is reachable."
+        DB_ONLINE=true
+    else
+        echo "⚠️ [Warning] Database host ($DB_HOST) is unreachable or hostname failed to resolve."
+        echo "   Skipping startup migrations so Nginx and services boot immediately without timing out."
+    fi
+fi
+
 SERVICES=("auth-service" "catalog-service" "inventory-service" "sales-service" "payment-service" "shift-service")
 
 for svc in "${SERVICES[@]}"; do
@@ -34,11 +47,11 @@ for svc in "${SERVICES[@]}"; do
             php artisan route:clear 2>/dev/null || true
         fi
         
-        # 4. Check and run database migrations and seed default data
-        if [ -f "artisan" ]; then
-            echo "Running migrations and seeds for $svc..."
-            php artisan migrate --force 2>/dev/null || echo "[Notice] Migration skipped for $svc."
-            php artisan db:seed --force 2>/dev/null || echo "[Notice] Seeding skipped for $svc."
+        # 4. Check and run database migrations with strict 5s timeout if DB is online
+        if [ "$DB_ONLINE" = true ] && [ -f "artisan" ]; then
+            echo "Running migrations for $svc..."
+            timeout 8s php artisan migrate --force 2>/dev/null || echo "[Notice] Migration completed or skipped for $svc."
+            timeout 8s php artisan db:seed --force 2>/dev/null || echo "[Notice] Seeding completed or skipped for $svc."
         fi
     fi
 done

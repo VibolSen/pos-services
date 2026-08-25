@@ -16,6 +16,7 @@ RUN apk add --no-cache \
     zip \
     unzip \
     mysql-client \
+    netcat-openbsd \
     linux-headers \
     && docker-php-ext-install pdo_mysql bcmath zip sockets \
     && mkdir -p /run/nginx /var/log/nginx /var/log/supervisor /var/run
