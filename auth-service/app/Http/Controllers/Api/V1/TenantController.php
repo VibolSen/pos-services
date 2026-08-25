@@ -63,6 +63,14 @@ class TenantController extends Controller
             'address'       => $request->address,
             'country'       => $request->country ?? 'KH',
             'currency'      => 'USD',
+            'enabled_modules' => json_encode([
+                'pos-terminal',
+                'inventory-control',
+                'product-catalog',
+                'hr-workforce',
+                'finance-ledger',
+                'security-roles',
+            ]),
             'max_outlets'   => $limits['max_outlets'],
             'max_registers' => $limits['max_registers'],
             'max_users'     => $limits['max_users'],
@@ -357,6 +365,114 @@ class TenantController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Get enabled modules for the active organization workspace.
+     * GET /api/v1/tenants/modules
+     */
+    public function getModules(Request $request)
+    {
+        $tenant = $this->resolveTenant($request);
+        if (!$tenant) {
+            return response()->json([
+                'success' => true,
+                'modules' => [
+                    'pos-terminal',
+                    'inventory-control',
+                    'product-catalog',
+                    'hr-workforce',
+                    'finance-ledger',
+                    'security-roles',
+                ],
+            ]);
+        }
+
+        $rawModules = $tenant->enabled_modules ?? null;
+        $modules = is_string($rawModules) ? json_decode($rawModules, true) : (is_array($rawModules) ? $rawModules : null);
+
+        if (empty($modules)) {
+            $modules = [
+                'pos-terminal',
+                'inventory-control',
+                'product-catalog',
+                'hr-workforce',
+                'finance-ledger',
+                'security-roles',
+            ];
+        }
+
+        return response()->json([
+            'success'     => true,
+            'tenant_id'   => $tenant->id,
+            'tenant_name' => $tenant->name,
+            'modules'     => $modules,
+        ]);
+    }
+
+    /**
+     * Update enabled modules for the active organization workspace in cloud database.
+     * PUT /api/v1/tenants/modules
+     */
+    public function updateModules(Request $request)
+    {
+        $request->validate([
+            'modules'   => 'required|array',
+            'tenant_id' => 'nullable|string',
+            'org_name'  => 'nullable|string',
+        ]);
+
+        $tenant = $this->resolveTenant($request);
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Organization workspace not found.',
+            ], 404);
+        }
+
+        DB::table('tenants')->where('id', $tenant->id)->update([
+            'enabled_modules' => json_encode($request->modules),
+            'updated_at'      => now(),
+        ]);
+
+        return response()->json([
+            'success'     => true,
+            'message'     => 'Organization modules saved to cloud database successfully!',
+            'tenant_id'   => $tenant->id,
+            'tenant_name' => $tenant->name,
+            'modules'     => $request->modules,
+        ]);
+    }
+
+    /**
+     * Helper to resolve active tenant from request headers, user session, or parameters.
+     */
+    protected function resolveTenant(Request $request)
+    {
+        // 1. By direct tenant_id parameter
+        if ($request->filled('tenant_id')) {
+            $t = DB::table('tenants')->where('id', $request->tenant_id)->first();
+            if ($t) return $t;
+        }
+
+        // 2. By X-Tenant-Workspace header or org_name parameter
+        $orgName = $request->header('X-Tenant-Workspace') ?: $request->query('org_name') ?: $request->input('org_name');
+        if ($orgName && $orgName !== 'No Organization Yet! Please Create' && $orgName !== 'Guest Workspace') {
+            $t = DB::table('tenants')
+                ->where('name', $orgName)
+                ->orWhere('slug', Str::slug($orgName))
+                ->first();
+            if ($t) return $t;
+        }
+
+        // 3. By authenticated user's tenant_id
+        if ($request->user() && $request->user()->tenant_id) {
+            $t = DB::table('tenants')->where('id', $request->user()->tenant_id)->first();
+            if ($t) return $t;
+        }
+
+        // 4. Fallback to primary enterprise tenant
+        return DB::table('tenants')->where('status', '!=', 'suspended')->first();
     }
 }
 

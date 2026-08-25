@@ -52,8 +52,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout-all-devices', [AuthController::class, 'logoutAllDevices']);
         Route::post('/auth/2fa/toggle', [AuthController::class, 'toggle2fa']);
 
-        // Subscription Quota Usage
+        // Subscription Quota Usage & Module Management
         Route::get('/tenants/quota-usage', [TenantController::class, 'quotaUsage']);
+        Route::get('/tenants/modules', [TenantController::class, 'getModules']);
+        Route::put('/tenants/modules', [TenantController::class, 'updateModules']);
 
         // Developer / Merchant API Keys
         Route::get('/api-keys', [ApiKeyController::class, 'index']);

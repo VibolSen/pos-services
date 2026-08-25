@@ -25,6 +25,7 @@ return new class extends Migration
                 $table->string('address')->nullable();
                 $table->string('country')->default('KH');
                 $table->string('currency')->default('USD');
+                $table->json('enabled_modules')->nullable();
                 $table->string('logo_url')->nullable();
                 $table->string('domain')->nullable();
                 $table->integer('max_outlets')->default(1);
