@@ -9,8 +9,17 @@ use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function bulkStore(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'items' => 'required|array|min:1',
             'items.*.name' => 'required|string|max:255',
@@ -28,9 +37,13 @@ class ProductController extends Controller
         $createdCount = 0;
         $errors = [];
 
-        DB::transaction(function () use ($validated, &$createdCount, &$errors) {
+        DB::transaction(function () use ($validated, $tenantId, &$createdCount, &$errors) {
             foreach ($validated['items'] as $index => $item) {
-                $existing = DB::table('products')->where('sku', $item['sku'])->first();
+                $skuQuery = DB::table('products')->where('sku', $item['sku']);
+                if ($tenantId) {
+                    $skuQuery->where('tenant_id', $tenantId);
+                }
+                $existing = $skuQuery->first();
                 if ($existing) {
                     $errors[] = "Row #" . ($index + 1) . ": SKU '{$item['sku']}' already exists.";
                     continue;
@@ -38,13 +51,20 @@ class ProductController extends Controller
 
                 $categoryId = $item['category_id'] ?? null;
                 if (!$categoryId && !empty($item['category_name'])) {
-                    $cat = DB::table('categories')->where('name', $item['category_name'])->first();
+                    $catQuery = DB::table('categories')->where('name', $item['category_name']);
+                    if ($tenantId) {
+                        $catQuery->where(function ($q) use ($tenantId) {
+                            $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+                        });
+                    }
+                    $cat = $catQuery->first();
                     if ($cat) {
                         $categoryId = $cat->id;
                     } else {
                         $categoryId = (string) Str::uuid();
                         DB::table('categories')->insert([
                             'id' => $categoryId,
+                            'tenant_id' => $tenantId,
                             'name' => $item['category_name'],
                             'slug' => Str::slug($item['category_name']) . '-' . rand(100, 999),
                             'created_at' => now(),
@@ -56,6 +76,7 @@ class ProductController extends Controller
                 $productId = (string) Str::uuid();
                 DB::table('products')->insert([
                     'id' => $productId,
+                    'tenant_id' => $tenantId,
                     'category_id' => $categoryId,
                     'name' => $item['name'],
                     'sku' => $item['sku'],
@@ -72,6 +93,7 @@ class ProductController extends Controller
                 $initialStock = $item['initial_stock'] ?? 0;
                 DB::table('inventory_balances')->insert([
                     'id' => (string) Str::uuid(),
+                    'tenant_id' => $tenantId,
                     'outlet_id' => 1,
                     'product_id' => $productId,
                     'on_hand' => $initialStock,
@@ -92,8 +114,10 @@ class ProductController extends Controller
             'errors' => $errors,
         ]);
     }
+
     public function index(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $outletId = $request->query('outlet_id', 1);
         $categoryId = $request->query('category_id');
         $search = $request->query('q');
@@ -108,6 +132,24 @@ class ProductController extends Controller
                     ->where('ib.outlet_id', '=', $outletId);
             })
             ->where('p.is_active', true);
+
+        // Scope to tenant organization
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantProducts = DB::table('products')
+                ->where('tenant_id', $tenantId)
+                ->where('is_active', true)
+                ->exists();
+
+            if ($hasTenantProducts) {
+                $query->where('p.tenant_id', $tenantId);
+            } else {
+                // If tenant hasn't added products yet, allow shared defaults so catalog is not blank
+                $query->where(function ($q) use ($tenantId) {
+                    $q->where('p.tenant_id', $tenantId)
+                      ->orWhereNull('p.tenant_id');
+                });
+            }
+        }
 
         if (!empty($categoryId)) {
             $query->where('p.category_id', $categoryId);
@@ -143,6 +185,7 @@ class ProductController extends Controller
 
         $products = $query->select(
                 'p.id',
+                'p.tenant_id',
                 'p.name',
                 'p.sku',
                 'p.barcode',
@@ -213,15 +256,28 @@ class ProductController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:100|unique:products,sku',
+            'sku' => 'required|string|max:100',
             'selling_price' => 'required|numeric|min:0',
             'cost_price' => 'nullable|numeric|min:0',
             'category_id' => 'nullable|string|max:36',
             'description' => 'nullable|string',
             'initial_stock' => 'nullable|integer|min:0',
         ]);
+
+        // Check if SKU exists for this tenant
+        $skuCheck = DB::table('products')->where('sku', $validated['sku']);
+        if ($tenantId) {
+            $skuCheck->where('tenant_id', $tenantId);
+        }
+        if ($skuCheck->exists()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => "SKU '{$validated['sku']}' is already in use for your organization.",
+            ], 422);
+        }
 
         $productId = (string) Str::uuid();
 
@@ -230,6 +286,7 @@ class ProductController extends Controller
 
         DB::table('products')->insert([
             'id' => $productId,
+            'tenant_id' => $tenantId,
             'name' => $validated['name'],
             'sku' => $validated['sku'],
             'selling_price' => $validated['selling_price'],
@@ -244,6 +301,7 @@ class ProductController extends Controller
         $initialStock = $validated['initial_stock'] ?? 100;
         DB::table('inventory_balances')->insert([
             'id' => (string) Str::uuid(),
+            'tenant_id' => $tenantId,
             'outlet_id' => $outletId,
             'product_id' => $productId,
             'on_hand' => $initialStock,
@@ -256,12 +314,18 @@ class ProductController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Product created successfully.',
-            'data' => ['id' => $productId],
+            'data' => [
+                'id' => $productId,
+                'tenant_id' => $tenantId,
+                'name' => $validated['name'],
+                'sku' => $validated['sku'],
+            ],
         ], 201);
     }
 
     public function update(Request $request, $id)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'selling_price' => 'sometimes|numeric|min:0',
@@ -270,8 +334,15 @@ class ProductController extends Controller
             'description' => 'sometimes|nullable|string',
         ]);
 
+        $query = DB::table('products')->where('id', $id);
+        if ($tenantId) {
+            $query->where(function ($q) use ($tenantId) {
+                $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+            });
+        }
+
         $validated['updated_at'] = now();
-        DB::table('products')->where('id', $id)->update($validated);
+        $query->update($validated);
 
         return response()->json([
             'status' => 'success',
@@ -279,9 +350,15 @@ class ProductController extends Controller
         ]);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        DB::table('products')->where('id', $id)->update(['is_active' => false, 'updated_at' => now()]);
+        $tenantId = $this->getTenantId($request);
+        $query = DB::table('products')->where('id', $id);
+        if ($tenantId) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $query->update(['is_active' => false, 'updated_at' => now()]);
 
         return response()->json([
             'status' => 'success',

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\PermissionController;
 use App\Http\Controllers\Api\V1\TenantController;
 use App\Http\Controllers\Api\V1\ApiKeyController;
+use App\Http\Controllers\Api\V1\CrmController;
 
 Route::prefix('v1')->group(function () {
     // Health Check Endpoint for Auth Microservice
@@ -63,6 +64,23 @@ Route::prefix('v1')->group(function () {
         Route::delete('/api-keys/{id}', [ApiKeyController::class, 'destroy']);
         Route::put('/api-keys/{id}/toggle', [ApiKeyController::class, 'toggle']);
 
+        // General Read-Only Organization Data for Authenticated Users
+        Route::get('/outlets', [OutletController::class, 'index']);
+        Route::get('/departments', [DepartmentController::class, 'index']);
+        Route::get('/suppliers', [SupplierController::class, 'index']);
+        Route::get('/customers', [CustomerController::class, 'index']);
+
+        // CRM Operations
+        Route::get('/crm/deals', [CrmController::class, 'deals']);
+        Route::post('/crm/deals', [CrmController::class, 'storeDeal']);
+        Route::put('/crm/deals/{id}', [CrmController::class, 'updateDeal']);
+        Route::delete('/crm/deals/{id}', [CrmController::class, 'destroyDeal']);
+        Route::get('/crm/leads', [CrmController::class, 'leads']);
+        Route::post('/crm/leads', [CrmController::class, 'storeLead']);
+        Route::get('/crm/activities', [CrmController::class, 'activities']);
+        Route::post('/crm/activities', [CrmController::class, 'storeActivity']);
+        Route::get('/crm/kpis', [CrmController::class, 'kpis']);
+
         // User & Staff Dynamic RBAC Management
         Route::middleware('role:admin,super_admin,outlet_manager')->group(function () {
             Route::get('/roles', [RoleController::class, 'index']);
@@ -86,14 +104,12 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{id}/reset-password', [UserController::class, 'resetPassword']);
             Route::delete('/users/{id}', [UserController::class, 'destroy']);
 
-            // Suppliers CRUD
-            Route::get('/suppliers', [SupplierController::class, 'index']);
+            // Suppliers Mutations (Write)
             Route::post('/suppliers', [SupplierController::class, 'store']);
             Route::put('/suppliers/{id}', [SupplierController::class, 'update']);
             Route::delete('/suppliers/{id}', [SupplierController::class, 'destroy']);
 
-            // Customers CRUD & Loyalty
-            Route::get('/customers', [CustomerController::class, 'index']);
+            // Customers Mutations & Loyalty (Write)
             Route::post('/customers', [CustomerController::class, 'store']);
             Route::put('/customers/{id}', [CustomerController::class, 'update']);
             Route::delete('/customers/{id}', [CustomerController::class, 'destroy']);
@@ -102,14 +118,12 @@ Route::prefix('v1')->group(function () {
             Route::post('/customers/{id}/convert-points', [CustomerLoyaltyController::class, 'convertPointsToCredit']);
             Route::get('/customers/{id}/history', [CustomerLoyaltyController::class, 'getHistory']);
 
-            // Outlets CRUD with Quota Enforcement
-            Route::get('/outlets', [OutletController::class, 'index']);
+            // Outlets Management with Quota Enforcement
             Route::post('/outlets', [OutletController::class, 'store'])->middleware('quota:outlets');
             Route::put('/outlets/{id}', [OutletController::class, 'update']);
             Route::delete('/outlets/{id}', [OutletController::class, 'destroy']);
 
-            // Departments CRUD
-            Route::get('/departments', [DepartmentController::class, 'index']);
+            // Departments Management
             Route::post('/departments', [DepartmentController::class, 'store']);
             Route::put('/departments/{id}', [DepartmentController::class, 'update']);
             Route::delete('/departments/{id}', [DepartmentController::class, 'destroy']);
@@ -121,16 +135,20 @@ Route::prefix('v1')->group(function () {
             Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
         });
 
+
         // Supervisor PIN Verification Override
         Route::post('/auth/verify-pin', [UserController::class, 'verifyPin']);
 
         // Super Admin Tenant Management Routes
         Route::middleware('role:super_admin')->prefix('super-admin')->group(function () {
             Route::get('/tenants', [TenantController::class, 'index']);
+            Route::get('/subscription-plans', [TenantController::class, 'subscriptionPlans']);
             Route::post('/tenants', [TenantController::class, 'register']);
             Route::get('/tenants/{id}', [TenantController::class, 'show']);
+            Route::put('/tenants/{id}', [TenantController::class, 'update']);
             Route::put('/tenants/{id}/subscription', [TenantController::class, 'updateSubscription']);
             Route::post('/tenants/{id}/suspend', [TenantController::class, 'suspend']);
+            Route::delete('/tenants/{id}', [TenantController::class, 'destroy']);
         });
     });
 });

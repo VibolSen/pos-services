@@ -31,16 +31,10 @@ class TenantController extends Controller
             $slug .= '-' . Str::random(4);
         }
 
-        // Ensure email is unique in tenants table without failing valid registrations
+        // Store the user's authentic account email for this organization
         $email = $request->email;
         if (empty($email)) {
-            $email = $slug . '@codebridges.app';
-        } else {
-            $emailTaken = DB::table('tenants')->where('email', $email)->exists();
-            if ($emailTaken) {
-                $parts = explode('@', $email);
-                $email = $parts[0] . '+' . Str::lower(Str::random(4)) . '@' . ($parts[1] ?? 'codebridges.app');
-            }
+            $email = $request->user()?->email ?? ($slug . '@codebridges.app');
         }
 
         $limits = match ($clientTier) {
@@ -63,14 +57,7 @@ class TenantController extends Controller
             'address'       => $request->address,
             'country'       => $request->country ?? 'KH',
             'currency'      => 'USD',
-            'enabled_modules' => json_encode([
-                'pos-terminal',
-                'inventory-control',
-                'product-catalog',
-                'hr-workforce',
-                'finance-ledger',
-                'security-roles',
-            ]),
+            'enabled_modules' => json_encode([]),
             'max_outlets'   => $limits['max_outlets'],
             'max_registers' => $limits['max_registers'],
             'max_users'     => $limits['max_users'],
@@ -107,6 +94,7 @@ class TenantController extends Controller
         $outletCode = 'STR-' . strtoupper(Str::random(4));
         DB::table('outlets')->insert([
             'id'             => $outletId,
+            'tenant_id'      => $id,
             'name'           => $request->name . ' - Main Store',
             'code'           => $outletCode,
             'phone'          => $request->phone,
@@ -128,10 +116,14 @@ class TenantController extends Controller
             'updated_at' => now(),
         ]);
 
-        // Link authenticated user to new tenant workspace
+        // Link authenticated user to new tenant workspace and grant admin role as organization owner
         if ($request->user()) {
+            $currentRole = $request->user()->role;
+            $newRole = in_array($currentRole, ['super_admin', 'admin', 'administrator']) ? $currentRole : 'admin';
             DB::table('users')->where('id', $request->user()->id)->update([
                 'tenant_id' => $id,
+                'outlet_id' => $outletId,
+                'role'      => $newRole,
                 'updated_at' => now(),
             ]);
         }
@@ -178,12 +170,51 @@ class TenantController extends Controller
 
         $tenants = $query->get();
 
-        // Attach subscription info
+        // Attach subscription and owner info
         foreach ($tenants as $tenant) {
             $tenant->subscription = DB::table('tenant_subscriptions')
                 ->where('tenant_id', $tenant->id)
                 ->orderBy('created_at', 'desc')
                 ->first();
+
+            $tenant->owner = DB::table('users')
+                ->where('tenant_id', $tenant->id)
+                ->whereIn('role', ['admin', 'administrator', 'owner'])
+                ->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at')
+                ->first();
+
+            if (!$tenant->owner) {
+                $tenant->owner = DB::table('users')
+                    ->where('tenant_id', $tenant->id)
+                    ->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at')
+                    ->orderBy('created_at', 'asc')
+                    ->first();
+            }
+
+            if (!$tenant->owner && !empty($tenant->email)) {
+                $matchedUser = DB::table('users')->where('email', $tenant->email)->first();
+                if ($matchedUser) {
+                    if (!$matchedUser->tenant_id) {
+                        DB::table('users')->where('id', $matchedUser->id)->update(['tenant_id' => $tenant->id]);
+                    }
+                    $tenant->owner = (object)[
+                        'id' => $matchedUser->id,
+                        'name' => $matchedUser->name,
+                        'email' => $matchedUser->email,
+                        'phone' => $matchedUser->phone,
+                        'role' => $matchedUser->role,
+                        'is_active' => (bool)$matchedUser->is_active,
+                        'created_at' => $matchedUser->created_at,
+                    ];
+                }
+            }
+
+            $tenant->users_count = DB::table('users')->where('tenant_id', $tenant->id)->count();
+            try {
+                $tenant->outlets_count = DB::table('outlets')->where('tenant_id', $tenant->id)->count();
+            } catch (\Throwable $e) {
+                $tenant->outlets_count = 1;
+            }
         }
 
         $stats = [
@@ -219,11 +250,138 @@ class TenantController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        $tenant->owner = DB::table('users')
+            ->where('tenant_id', $id)
+            ->whereIn('role', ['admin', 'administrator', 'owner'])
+            ->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at')
+            ->first()
+            ?? DB::table('users')->where('tenant_id', $id)->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at')->first();
+
         $tenant->users_count = DB::table('users')->where('tenant_id', $id)->count();
+        try {
+            $tenant->outlets_count = DB::table('outlets')->where('tenant_id', $id)->count();
+        } catch (\Throwable $e) {
+            $tenant->outlets_count = 1;
+        }
 
         return response()->json([
             'success' => true,
             'data'    => $tenant,
+        ]);
+    }
+
+    /**
+     * Super Admin: Update tenant organization details and owner.
+     * PUT /api/v1/super-admin/tenants/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $tenant = DB::table('tenants')->where('id', $id)->first();
+        if (!$tenant) {
+            return response()->json(['success' => false, 'message' => 'Tenant not found.'], 404);
+        }
+
+        $request->validate([
+            'name'          => 'sometimes|required|string|max:255',
+            'client_tier'   => 'sometimes|required|in:free_personal,business_runner,enterprise_org',
+            'status'        => 'sometimes|required|in:active,trial,suspended,expired',
+            'email'         => 'nullable|email|max:255',
+            'phone'         => 'nullable|string|max:50',
+            'address'       => 'nullable|string|max:500',
+            'max_outlets'   => 'nullable|integer|min:1',
+            'max_registers' => 'nullable|integer|min:1',
+            'max_users'     => 'nullable|integer|min:1',
+            'trial_ends_at' => 'nullable|date',
+            'owner_name'    => 'nullable|string|max:255',
+            'owner_email'   => 'nullable|email|max:255',
+            'owner_phone'   => 'nullable|string|max:50',
+            'owner_id'      => 'nullable|string',
+        ]);
+
+        $updateData = [];
+        foreach (['name', 'client_tier', 'status', 'email', 'phone', 'address', 'max_outlets', 'max_registers', 'max_users', 'trial_ends_at'] as $field) {
+            if ($request->has($field)) {
+                $updateData[$field] = $request->input($field);
+            }
+        }
+        $updateData['updated_at'] = now();
+
+        DB::table('tenants')->where('id', $id)->update($updateData);
+
+        // Update Owner details if provided
+        if ($request->filled('owner_id')) {
+            DB::table('users')->where('id', $request->owner_id)->update([
+                'tenant_id' => $id,
+                'role'      => 'admin',
+                'updated_at'=> now(),
+            ]);
+        } elseif ($request->filled('owner_name') || $request->filled('owner_email') || $request->filled('owner_phone')) {
+            $owner = DB::table('users')
+                ->where('tenant_id', $id)
+                ->whereIn('role', ['admin', 'administrator', 'owner'])
+                ->first()
+                ?? DB::table('users')->where('tenant_id', $id)->first();
+
+            if ($owner) {
+                $ownerUpdates = [];
+                if ($request->filled('owner_name')) $ownerUpdates['name'] = $request->owner_name;
+                if ($request->filled('owner_email')) $ownerUpdates['email'] = $request->owner_email;
+                if ($request->filled('owner_phone')) $ownerUpdates['phone'] = $request->owner_phone;
+                $ownerUpdates['updated_at'] = now();
+
+                DB::table('users')->where('id', $owner->id)->update($ownerUpdates);
+            } else if ($request->filled('owner_email')) {
+                $existingUser = DB::table('users')->where('email', $request->owner_email)->first();
+                if ($existingUser) {
+                    DB::table('users')->where('id', $existingUser->id)->update([
+                        'tenant_id' => $id,
+                        'name'      => $request->owner_name ?? $existingUser->name,
+                        'phone'     => $request->owner_phone ?? $existingUser->phone,
+                        'role'      => 'admin',
+                        'updated_at'=> now(),
+                    ]);
+                } else {
+                    DB::table('users')->insert([
+                        'id'         => (string) Str::uuid(),
+                        'tenant_id'  => $id,
+                        'name'       => $request->owner_name ?? 'Store Owner',
+                        'email'      => $request->owner_email,
+                        'phone'      => $request->owner_phone,
+                        'password'   => Hash::make('password'),
+                        'role'       => 'admin',
+                        'is_active'  => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tenant organization and owner details updated successfully.',
+            'data'    => DB::table('tenants')->where('id', $id)->first(),
+        ]);
+    }
+
+    /**
+     * Super Admin: Delete tenant organization.
+     * DELETE /api/v1/super-admin/tenants/{id}
+     */
+    public function destroy($id)
+    {
+        $tenant = DB::table('tenants')->where('id', $id)->first();
+        if (!$tenant) {
+            return response()->json(['success' => false, 'message' => 'Tenant not found.'], 404);
+        }
+
+        DB::table('users')->where('tenant_id', $id)->update(['tenant_id' => null]);
+        DB::table('tenant_subscriptions')->where('tenant_id', $id)->delete();
+        DB::table('tenants')->where('id', $id)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Tenant organization '{$tenant->name}' has been deleted successfully.",
         ]);
     }
 
@@ -377,29 +535,15 @@ class TenantController extends Controller
         if (!$tenant) {
             return response()->json([
                 'success' => true,
-                'modules' => [
-                    'pos-terminal',
-                    'inventory-control',
-                    'product-catalog',
-                    'hr-workforce',
-                    'finance-ledger',
-                    'security-roles',
-                ],
+                'modules' => [],
             ]);
         }
 
         $rawModules = $tenant->enabled_modules ?? null;
-        $modules = is_string($rawModules) ? json_decode($rawModules, true) : (is_array($rawModules) ? $rawModules : null);
+        $modules = is_string($rawModules) ? json_decode($rawModules, true) : (is_array($rawModules) ? $rawModules : []);
 
-        if (empty($modules)) {
-            $modules = [
-                'pos-terminal',
-                'inventory-control',
-                'product-catalog',
-                'hr-workforce',
-                'finance-ledger',
-                'security-roles',
-            ];
+        if (!is_array($modules)) {
+            $modules = [];
         }
 
         return response()->json([
@@ -474,5 +618,64 @@ class TenantController extends Controller
         // 4. Fallback to primary enterprise tenant
         return DB::table('tenants')->where('status', '!=', 'suspended')->first();
     }
+
+    /**
+     * Get platform subscription plans with dynamic tenant usage counts
+     * GET /api/v1/super-admin/subscription-plans
+     */
+    public function subscriptionPlans()
+    {
+        $stats = [
+            'enterprise_org'  => DB::table('tenants')->where('client_tier', 'enterprise_org')->count(),
+            'business_runner' => DB::table('tenants')->where('client_tier', 'business_runner')->count(),
+            'free_personal'   => DB::table('tenants')->where('client_tier', 'free_personal')->count(),
+        ];
+
+        $plans = [
+            [
+                'id' => 'starter',
+                'tier_code' => 'free_personal',
+                'name' => 'Starter Business',
+                'priceMonthly' => 29,
+                'priceAnnual' => 290,
+                'maxOutlets' => 1,
+                'maxRegisters' => 2,
+                'maxStaff' => 5,
+                'modulesIncluded' => ['POS System', 'Basic Inventory'],
+                'activeTenantsCount' => $stats['free_personal'],
+            ],
+            [
+                'id' => 'growth',
+                'tier_code' => 'business_runner',
+                'name' => 'Growth & Multi-Outlet',
+                'priceMonthly' => 79,
+                'priceAnnual' => 790,
+                'popular' => true,
+                'maxOutlets' => 5,
+                'maxRegisters' => 15,
+                'maxStaff' => 25,
+                'modulesIncluded' => ['POS System', 'Advanced Inventory', 'Staff & HRM', 'Kitchen KDS', 'Customer CFD'],
+                'activeTenantsCount' => $stats['business_runner'],
+            ],
+            [
+                'id' => 'enterprise',
+                'tier_code' => 'enterprise_org',
+                'name' => 'Enterprise Scale',
+                'priceMonthly' => 199,
+                'priceAnnual' => 1990,
+                'maxOutlets' => 50,
+                'maxRegisters' => 200,
+                'maxStaff' => 100,
+                'modulesIncluded' => ['POS System', 'All 8 Ecosystem Services', 'Custom Domain', 'Dedicated Database', '24/7 SLA Support'],
+                'activeTenantsCount' => $stats['enterprise_org'],
+            ],
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $plans,
+        ]);
+    }
 }
+
 

@@ -15,54 +15,123 @@ class ReportController extends Controller
     {
         $startDate = $request->query('start_date', now()->startOfMonth()->toDateString());
         $endDate = $request->query('end_date', now()->toDateString());
+        $outletId = $request->query('outlet_id');
 
         $salesQuery = DB::table('sales')
             ->whereDate('created_at', '>=', $startDate)
             ->whereDate('created_at', '<=', $endDate)
             ->where('status', '!=', 'cancelled');
 
+        if (!empty($outletId) && $outletId !== 'all') {
+            $salesQuery->where('outlet_id', $outletId);
+        }
+
         $totalRevenue = (float) $salesQuery->sum('grand_total');
         $taxTotal = (float) $salesQuery->sum('tax_total');
+        $discountTotal = (float) $salesQuery->sum('discount_total');
         $transactionCount = $salesQuery->count();
         $avgBasket = $transactionCount > 0 ? $totalRevenue / $transactionCount : 0;
-
-        // Estimated Cost of Goods Sold (COGS) at 60% of net sales
         $netSales = max(0, $totalRevenue - $taxTotal);
-        $cogs = round($netSales * 0.60, 2);
-        $grossProfit = round($netSales - $cogs, 2);
-        $grossMarginPct = $netSales > 0 ? round(($grossProfit / $netSales) * 100, 2) : 0;
 
-        // Top Selling Products
-        $topProducts = DB::table('sale_lines as sl')
-            ->join('sales as s', 'sl.sale_id', '=', 's.id')
+        // Tender breakdowns
+        $tenderQuery = DB::table('payments as p')
+            ->join('sales as s', 'p.sale_id', '=', 's.id')
             ->whereDate('s.created_at', '>=', $startDate)
             ->whereDate('s.created_at', '<=', $endDate)
+            ->where('s.status', '!=', 'cancelled');
+
+        if (!empty($outletId) && $outletId !== 'all') {
+            $tenderQuery->where('s.outlet_id', $outletId);
+        }
+
+        $cashSales = (float) (clone $tenderQuery)->where('p.tender_type', 'cash')->sum('p.amount');
+        $khqrSales = (float) (clone $tenderQuery)->where('p.tender_type', 'khqr')->sum('p.amount');
+        $cardSales = (float) (clone $tenderQuery)->where('p.tender_type', 'card')->sum('p.amount');
+
+        // Refunds Total
+        $refundsTotal = (float) DB::table('refunds')
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate)
+            ->sum('amount');
+
+        // Hourly distribution across standard operating hours
+        $hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'];
+        $hourlyMap = [];
+        foreach ($hours as $h) {
+            $hourlyMap[$h] = ['hour' => $h, 'orders' => 0, 'sales' => 0.0];
+        }
+
+        $salesList = (clone $salesQuery)->select('id', 'grand_total', 'created_at')->get();
+        foreach ($salesList as $sale) {
+            $hourStr = date('H:00', strtotime($sale->created_at));
+            if (isset($hourlyMap[$hourStr])) {
+                $hourlyMap[$hourStr]['orders'] += 1;
+                $hourlyMap[$hourStr]['sales'] += (float) $sale->grand_total;
+            }
+        }
+        $hourlySales = array_values($hourlyMap);
+
+        // Cashier performance
+        $cashierPerformance = DB::table('sales as s')
+            ->leftJoin('users as u', 's.user_id', '=', 'u.id')
+            ->whereDate('s.created_at', '>=', $startDate)
+            ->whereDate('s.created_at', '<=', $endDate)
+            ->where('s.status', '!=', 'cancelled')
             ->select(
-                'sl.product_id',
-                'sl.product_name',
-                DB::raw('SUM(sl.quantity) as total_quantity'),
-                DB::raw('SUM(sl.subtotal) as total_revenue')
+                'u.id',
+                DB::raw("COALESCE(u.name, 'Cashier') as name"),
+                DB::raw("COALESCE(u.role, 'Cashier') as role"),
+                DB::raw('COUNT(s.id) as orders'),
+                DB::raw('SUM(s.grand_total) as revenue')
             )
-            ->groupBy('sl.product_id', 'sl.product_name')
-            ->orderBy('total_revenue', 'desc')
+            ->groupBy('u.id', 'u.name', 'u.role')
+            ->orderByDesc('revenue')
             ->limit(10)
             ->get();
+
+        // Category performance
+        $categoryPerformance = DB::table('sale_lines as sl')
+            ->join('sales as s', 'sl.sale_id', '=', 's.id')
+            ->join('products as p', 'sl.product_id', '=', 'p.id')
+            ->leftJoin('categories as c', 'p.category_id', '=', 'c.id')
+            ->whereDate('s.created_at', '>=', $startDate)
+            ->whereDate('s.created_at', '<=', $endDate)
+            ->where('s.status', '!=', 'cancelled')
+            ->select(
+                DB::raw("COALESCE(c.name, 'General Goods') as name"),
+                DB::raw('SUM(sl.quantity) as orders'),
+                DB::raw('SUM(sl.subtotal) as revenue')
+            )
+            ->groupBy('c.name')
+            ->orderByDesc('revenue')
+            ->limit(6)
+            ->get();
+
+        $totalCatRevenue = $categoryPerformance->sum('revenue') ?: 1;
+        $categoryPerformance = $categoryPerformance->map(function ($cat) use ($totalCatRevenue) {
+            $cat->share = round(((float)$cat->revenue / $totalCatRevenue) * 100, 1);
+            return $cat;
+        });
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'period' => ['start' => $startDate, 'end' => $endDate],
                 'summary' => [
-                    'total_revenue' => $totalRevenue,
+                    'total_sales' => $totalRevenue,
                     'net_sales' => $netSales,
                     'tax_total' => $taxTotal,
-                    'cogs' => $cogs,
-                    'gross_profit' => $grossProfit,
-                    'gross_margin_pct' => $grossMarginPct,
-                    'transaction_count' => $transactionCount,
-                    'average_basket' => round($avgBasket, 2),
+                    'discount_total' => $discountTotal,
+                    'refunds_total' => $refundsTotal,
+                    'total_transactions' => $transactionCount,
+                    'average_ticket' => round($avgBasket, 2),
+                    'cash_sales' => $cashSales,
+                    'khqr_sales' => $khqrSales,
+                    'card_sales' => $cardSales,
                 ],
-                'top_products' => $topProducts,
+                'hourly_sales' => $hourlySales,
+                'cashier_performance' => $cashierPerformance,
+                'category_performance' => $categoryPerformance,
             ],
         ]);
     }

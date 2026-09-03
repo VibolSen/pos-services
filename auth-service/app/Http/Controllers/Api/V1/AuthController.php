@@ -91,6 +91,14 @@ class AuthController extends Controller
                 'device_name' => $deviceName,
             ]);
 
+        if ($user->tenant_id) {
+            $tenant = DB::table('tenants')->where('id', $user->tenant_id)->first();
+            if ($tenant) {
+                $user->tenant_name = $tenant->name;
+                $user->company_name = $tenant->name;
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'user' => $user,
@@ -156,6 +164,14 @@ class AuthController extends Controller
                 'user_agent' => substr($request->userAgent() ?? '', 0, 500),
                 'device_name' => $deviceName,
             ]);
+
+        if ($user->tenant_id) {
+            $tenant = DB::table('tenants')->where('id', $user->tenant_id)->first();
+            if ($tenant) {
+                $user->tenant_name = $tenant->name;
+                $user->company_name = $tenant->name;
+            }
+        }
 
         return response()->json([
             'status' => 'success',
@@ -432,9 +448,18 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
+        $user = $request->user();
+        if ($user && $user->tenant_id) {
+            $tenant = DB::table('tenants')->where('id', $user->tenant_id)->first();
+            if ($tenant) {
+                $user->tenant_name = $tenant->name;
+                $user->company_name = $tenant->name;
+            }
+        }
+
         return response()->json([
             'status' => 'success',
-            'user' => $request->user(),
+            'user' => $user,
         ]);
     }
 

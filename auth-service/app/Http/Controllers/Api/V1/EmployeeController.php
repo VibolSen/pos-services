@@ -5,17 +5,31 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class EmployeeController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function index(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $search = $request->query('q');
         $departmentId = $request->query('department_id');
 
         $query = DB::table('employees as e')
             ->leftJoin('departments as d', 'e.department_id', '=', 'd.id')
             ->leftJoin('outlets as o', 'e.outlet_id', '=', 'o.id');
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $query->where('e.tenant_id', $tenantId);
+        }
 
         if (!empty($departmentId)) {
             $query->where('e.department_id', $departmentId);
@@ -49,7 +63,7 @@ class EmployeeController extends Controller
                 'o.name as outlet_name',
                 'e.created_at'
             )
-            ->orderBy('e.id', 'desc')
+            ->orderBy('e.created_at', 'desc')
             ->get();
 
         return response()->json([
@@ -60,29 +74,33 @@ class EmployeeController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:50',
-            'department_id' => 'nullable|integer|exists:departments,id',
-            'outlet_id' => 'nullable|integer|exists:outlets,id',
+            'department_id' => 'nullable',
+            'outlet_id' => 'nullable',
             'designation' => 'required|string|max:255',
             'employment_type' => 'required|string|in:Full-time,Part-time,Contract',
             'hire_date' => 'nullable|date',
             'salary' => 'nullable|numeric|min:0',
         ]);
 
-        $code = 'EMP-' . rand(100, 999);
+        $id = (string) Str::uuid();
+        $code = 'EMP-' . strtoupper(substr(uniqid(), -4));
 
-        $id = DB::table('employees')->insertGetId([
+        DB::table('employees')->insert([
+            'id' => $id,
+            'tenant_id' => $tenantId,
             'employee_code' => $code,
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'email' => $validated['email'] ?? null,
             'phone' => $validated['phone'] ?? null,
-            'department_id' => $validated['department_id'] ?? null,
-            'outlet_id' => $validated['outlet_id'] ?? 1,
+            'department_id' => !empty($validated['department_id']) ? $validated['department_id'] : null,
+            'outlet_id' => !empty($validated['outlet_id']) ? $validated['outlet_id'] : null,
             'designation' => $validated['designation'],
             'employment_type' => $validated['employment_type'],
             'hire_date' => $validated['hire_date'] ?? now()->toDateString(),
@@ -101,26 +119,35 @@ class EmployeeController extends Controller
 
     public function update(Request $request, $id)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:50',
-            'department_id' => 'nullable|integer|exists:departments,id',
-            'outlet_id' => 'nullable|integer|exists:outlets,id',
+            'department_id' => 'nullable',
+            'outlet_id' => 'nullable',
             'designation' => 'required|string|max:255',
             'employment_type' => 'required|string|in:Full-time,Part-time,Contract',
             'hire_date' => 'nullable|date',
             'salary' => 'nullable|numeric|min:0',
         ]);
 
-        DB::table('employees')->where('id', $id)->update([
+        $query = DB::table('employees')->where('id', $id);
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenant = DB::table('employees')->where('id', $id)->where('tenant_id', $tenantId)->exists();
+            if ($hasTenant) {
+                $query->where('tenant_id', $tenantId);
+            }
+        }
+
+        $query->update([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'email' => $validated['email'] ?? null,
             'phone' => $validated['phone'] ?? null,
-            'department_id' => $validated['department_id'] ?? null,
-            'outlet_id' => $validated['outlet_id'] ?? null,
+            'department_id' => !empty($validated['department_id']) ? $validated['department_id'] : null,
+            'outlet_id' => !empty($validated['outlet_id']) ? $validated['outlet_id'] : null,
             'designation' => $validated['designation'],
             'employment_type' => $validated['employment_type'],
             'hire_date' => $validated['hire_date'] ?? null,
@@ -134,9 +161,19 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        DB::table('employees')->where('id', $id)->update([
+        $tenantId = $this->getTenantId($request);
+        $query = DB::table('employees')->where('id', $id);
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenant = DB::table('employees')->where('id', $id)->where('tenant_id', $tenantId)->exists();
+            if ($hasTenant) {
+                $query->where('tenant_id', $tenantId);
+            }
+        }
+
+        $query->update([
             'is_active' => false,
             'updated_at' => now(),
         ]);

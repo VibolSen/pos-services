@@ -11,17 +11,30 @@ class OutletController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
         $search = $request->query('q');
 
         $query = DB::table('outlets as o');
 
+        // Multi-tenant scoping: Non-super-admin users only see outlets belonging to their tenant/workspace
+        if ($user && $user->role !== 'super_admin') {
+            if (!empty($user->tenant_id)) {
+                $query->where('o.tenant_id', $user->tenant_id);
+            } elseif (!empty($user->outlet_id)) {
+                $query->where('o.id', $user->outlet_id);
+            }
+        }
+
         if (!empty($search)) {
-            $query->where('o.name', 'like', "%{$search}%")
+            $query->where(function ($q) use ($search) {
+                $q->where('o.name', 'like', "%{$search}%")
                   ->orWhere('o.code', 'like', "%{$search}%");
+            });
         }
 
         $outlets = $query->select(
                 'o.id',
+                'o.tenant_id',
                 'o.name',
                 'o.code',
                 'o.address',
@@ -44,6 +57,7 @@ class OutletController extends Controller
 
     public function store(Request $request)
     {
+        $user = $request->user();
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'code' => 'required|string|max:50|unique:outlets,code',
@@ -54,9 +68,11 @@ class OutletController extends Controller
         ]);
 
         $id = (string) Str::uuid();
+        $tenantId = $user ? $user->tenant_id : null;
 
         DB::table('outlets')->insert([
             'id' => $id,
+            'tenant_id' => $tenantId,
             'name' => $validated['name'],
             'code' => $validated['code'],
             'phone' => $validated['phone'] ?? null,

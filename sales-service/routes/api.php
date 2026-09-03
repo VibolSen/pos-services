@@ -29,7 +29,8 @@ Route::prefix('v1')->group(function () {
     // Protected Sales & Order Fulfillment Operations
     Route::middleware('auth:sanctum')->group(function () {
         // Sales Checkout, Receipts, Returns, Refunds, KDS & Tables
-        Route::middleware('role:cashier,supervisor,outlet_manager,admin,super_admin,accountant,inventory_clerk')->group(function () {
+        Route::middleware('role:cashier,supervisor,outlet_manager,admin,super_admin,accountant,inventory_clerk,user,employee')->group(function () {
+            Route::get('/sales', [CheckoutController::class, 'index']);
             Route::post('/sales', [CheckoutController::class, 'store']);
             Route::post('/sales/sync', [OfflineSyncController::class, 'sync']);
             Route::get('/sales/{id}/receipt', [ReceiptController::class, 'show']);
@@ -54,7 +55,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('/carts/held/{id}', [CartController::class, 'destroy']);
 
         // Admin Dashboard & Financial Reporting Analytics
-        Route::middleware('role:admin,super_admin,outlet_manager,accountant,cashier,supervisor,inventory_clerk,customer')->group(function () {
+        Route::middleware('role:admin,super_admin,outlet_manager,accountant,cashier,supervisor,inventory_clerk,customer,user,employee')->group(function () {
             Route::get('/admin/dashboard/summary', [DashboardController::class, 'summary']);
             Route::get('/admin/dashboard/widgets', [DashboardController::class, 'widgets']);
             Route::get('/admin/dashboard/charts', [DashboardController::class, 'charts']);

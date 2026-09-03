@@ -9,11 +9,32 @@ use Illuminate\Support\Str;
 
 class SupplierController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function index(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $search = $request->query('q');
 
         $query = DB::table('suppliers');
+
+        // Scope to tenant organization
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenant = DB::table('suppliers')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenant) {
+                $query->where('tenant_id', $tenantId);
+            } else {
+                $query->where(function ($q) use ($tenantId) {
+                    $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+                });
+            }
+        }
 
         if (!empty($search)) {
             $query->where(function ($q) use ($search) {
@@ -35,6 +56,7 @@ class SupplierController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'contact_name' => 'nullable|string|max:255',
@@ -48,6 +70,7 @@ class SupplierController extends Controller
 
         DB::table('suppliers')->insert([
             'id' => $id,
+            'tenant_id' => $tenantId,
             'name' => $validated['name'],
             'code' => $code,
             'contact_name' => $validated['contact_name'] ?? null,

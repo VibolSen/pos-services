@@ -28,7 +28,7 @@ class ShiftController extends Controller
         $cashSales = DB::table('sales as s')
             ->join('payments as p', 's.id', '=', 'p.sale_id')
             ->where('s.shift_id', $shift->id)
-            ->where('p.payment_method', 'cash')
+            ->where('p.tender_type', 'cash')
             ->where('p.status', 'paid')
             ->sum('p.amount');
 
@@ -157,7 +157,7 @@ class ShiftController extends Controller
         $cashSales = DB::table('sales as s')
             ->join('payments as p', 's.id', '=', 'p.sale_id')
             ->where('s.shift_id', $shift->id)
-            ->where('p.payment_method', 'cash')
+            ->where('p.tender_type', 'cash')
             ->where('p.status', 'paid')
             ->sum('p.amount');
 
@@ -214,6 +214,85 @@ class ShiftController extends Controller
                 'expected_cash' => $expectedCash,
                 'counted_cash' => $countedCash,
                 'cash_variance' => $cashVariance,
+            ],
+        ]);
+    }
+
+    public function xReport(Request $request, $id)
+    {
+        $shift = DB::table('shifts as s')
+            ->leftJoin('users as u', 's.user_id', '=', 'u.id')
+            ->where('s.id', $id)
+            ->select('s.*', 'u.name as cashier_name')
+            ->first();
+
+        if (!$shift) {
+            return response()->json(['status' => 'error', 'message' => 'Shift not found.'], 404);
+        }
+
+        $cashSales = (float) DB::table('sales as s')
+            ->join('payments as p', 's.id', '=', 'p.sale_id')
+            ->where('s.shift_id', $shift->id)
+            ->where('p.tender_type', 'cash')
+            ->where('p.status', 'paid')
+            ->sum('p.amount');
+
+        $khqrSales = (float) DB::table('sales as s')
+            ->join('payments as p', 's.id', '=', 'p.sale_id')
+            ->where('s.shift_id', $shift->id)
+            ->where('p.tender_type', 'khqr')
+            ->where('p.status', 'paid')
+            ->sum('p.amount');
+
+        $cardSales = (float) DB::table('sales as s')
+            ->join('payments as p', 's.id', '=', 'p.sale_id')
+            ->where('s.shift_id', $shift->id)
+            ->where('p.tender_type', 'card')
+            ->where('p.status', 'paid')
+            ->sum('p.amount');
+
+        $cashIn = (float) DB::table('cash_drawer_movements')->where('shift_id', $shift->id)->where('type', 'in')->sum('amount');
+        $cashOut = (float) DB::table('cash_drawer_movements')->where('shift_id', $shift->id)->where('type', 'out')->sum('amount');
+
+        $expectedCash = (float) $shift->opening_float + $cashSales + $cashIn - $cashOut;
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'type' => 'X-REPORT',
+                'report_code' => 'X-' . substr($shift->id, 0, 8),
+                'shift' => $shift,
+                'opening_float' => (float) $shift->opening_float,
+                'cash_sales' => $cashSales,
+                'khqr_sales' => $khqrSales,
+                'card_sales' => $cardSales,
+                'gross_sales' => $cashSales + $khqrSales + $cardSales,
+                'pay_ins' => $cashIn,
+                'pay_outs' => $cashOut,
+                'expected_cash' => $expectedCash,
+                'timestamp' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
+    public function history(Request $request)
+    {
+        $shifts = DB::table('shifts as s')
+            ->leftJoin('users as u', 's.user_id', '=', 'u.id')
+            ->leftJoin('outlets as o', 's.outlet_id', '=', 'o.id')
+            ->select(
+                's.*',
+                'u.name as cashier_name',
+                'o.name as outlet_name'
+            )
+            ->orderBy('s.created_at', 'desc')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'shifts' => $shifts,
             ],
         ]);
     }

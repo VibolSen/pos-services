@@ -9,16 +9,32 @@ use Illuminate\Support\Str;
 
 class ReconciliationController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     /**
      * Run batch reconciliation audit comparing internal payments vs gateway settlements
      */
     public function run(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $batchId = (string) Str::uuid();
         $batchCode = 'REC-BATCH-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
 
-        // Audit recent payment attempts
-        $attempts = DB::table('payment_attempts')->orderBy('created_at', 'desc')->limit(50)->get();
+        // Audit recent payment attempts scoped by tenant
+        $attemptsQuery = DB::table('payment_attempts');
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenant = DB::table('payment_attempts')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenant) {
+                $attemptsQuery->where('tenant_id', $tenantId);
+            }
+        }
+        $attempts = $attemptsQuery->orderBy('created_at', 'desc')->limit(50)->get();
 
         $totalRecords = $attempts->count();
         $matchedCount = 0;
@@ -42,6 +58,7 @@ class ReconciliationController extends Controller
 
                 $exceptionsToInsert[] = [
                     'id' => (string) Str::uuid(),
+                    'tenant_id' => $tenantId,
                     'reconciliation_id' => $batchId,
                     'payment_id' => $attempt->payment_id,
                     'merchant_reference' => $attempt->merchant_reference ?? ('PAY-' . strtoupper(substr(uniqid(), -6))),
@@ -60,6 +77,7 @@ class ReconciliationController extends Controller
         // Insert Reconciliation Batch Header
         DB::table('reconciliations')->insert([
             'id' => $batchId,
+            'tenant_id' => $tenantId,
             'batch_code' => $batchCode,
             'reconciled_date' => now()->toDateString(),
             'total_records' => $totalRecords,
@@ -95,11 +113,19 @@ class ReconciliationController extends Controller
      */
     public function exceptions(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $status = $request->query('status');
         $type = $request->query('type');
 
         $query = DB::table('reconciliation_exceptions as re')
             ->join('reconciliations as r', 're.reconciliation_id', '=', 'r.id');
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenant = DB::table('reconciliation_exceptions')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenant) {
+                $query->where('re.tenant_id', $tenantId);
+            }
+        }
 
         if (!empty($status) && $status !== 'all') {
             $query->where('re.status', $status);
@@ -126,12 +152,30 @@ class ReconciliationController extends Controller
             ->orderBy('re.created_at', 'desc')
             ->get();
 
-        $batches = DB::table('reconciliations')->orderBy('created_at', 'desc')->limit(10)->get();
+        $batchesQuery = DB::table('reconciliations');
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantBatches = DB::table('reconciliations')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenantBatches) {
+                $batchesQuery->where('tenant_id', $tenantId);
+            }
+        }
+        $batches = $batchesQuery->orderBy('created_at', 'desc')->limit(10)->get();
 
         // Calculate summary statistics
-        $pendingCount = DB::table('reconciliation_exceptions')->where('status', 'pending')->count();
-        $resolvedCount = DB::table('reconciliation_exceptions')->where('status', 'resolved')->count();
-        $totalDiscrepancySum = DB::table('reconciliation_exceptions')->where('status', 'pending')->sum('discrepancy_amount');
+        $pendingQuery = DB::table('reconciliation_exceptions')->where('status', 'pending');
+        $resolvedQuery = DB::table('reconciliation_exceptions')->where('status', 'resolved');
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantEx = DB::table('reconciliation_exceptions')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenantEx) {
+                $pendingQuery->where('tenant_id', $tenantId);
+                $resolvedQuery->where('tenant_id', $tenantId);
+            }
+        }
+
+        $pendingCount = $pendingQuery->count();
+        $resolvedCount = $resolvedQuery->count();
+        $totalDiscrepancySum = $pendingQuery->sum('discrepancy_amount');
 
         return response()->json([
             'status' => 'success',

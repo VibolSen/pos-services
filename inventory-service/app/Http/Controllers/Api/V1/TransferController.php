@@ -9,8 +9,17 @@ use Illuminate\Support\Str;
 
 class TransferController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function index(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $status = $request->query('status');
         $outletId = $request->query('outlet_id');
         $search = $request->query('q');
@@ -19,6 +28,18 @@ class TransferController extends Controller
             ->leftJoin('outlets as from_o', 'st.from_outlet_id', '=', 'from_o.id')
             ->leftJoin('outlets as to_o', 'st.to_outlet_id', '=', 'to_o.id')
             ->leftJoin('users as u', 'st.user_id', '=', 'u.id');
+
+        // Scope to tenant organization
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantTransfers = DB::table('stock_transfers')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenantTransfers) {
+                $query->where('st.tenant_id', $tenantId);
+            } else {
+                $query->where(function ($q) use ($tenantId) {
+                    $q->where('st.tenant_id', $tenantId)->orWhereNull('st.tenant_id');
+                });
+            }
+        }
 
         if (!empty($status)) {
             $query->where('st.status', $status);
@@ -40,6 +61,7 @@ class TransferController extends Controller
 
         $transfers = $query->select(
                 'st.id',
+                'st.tenant_id',
                 'st.transfer_number',
                 'st.from_outlet_id',
                 'from_o.name as from_outlet_name',
@@ -105,6 +127,7 @@ class TransferController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'from_outlet_id' => 'required',
             'to_outlet_id' => 'required|different:from_outlet_id',
@@ -118,10 +141,11 @@ class TransferController extends Controller
         $transferId = (string) Str::uuid();
         $transferNumber = 'TRF-' . date('Ymd') . '-' . rand(1000, 9999);
 
-        DB::transaction(function () use ($validated, $userId, $transferId, $transferNumber) {
+        DB::transaction(function () use ($validated, $tenantId, $userId, $transferId, $transferNumber) {
             // Create stock transfer record
             DB::table('stock_transfers')->insert([
                 'id' => $transferId,
+                'tenant_id' => $tenantId,
                 'transfer_number' => $transferNumber,
                 'from_outlet_id' => $validated['from_outlet_id'],
                 'to_outlet_id' => $validated['to_outlet_id'],
@@ -160,6 +184,7 @@ class TransferController extends Controller
                 } else {
                     DB::table('inventory_balances')->insert([
                         'id' => (string) Str::uuid(),
+                        'tenant_id' => $tenantId,
                         'outlet_id' => $validated['from_outlet_id'],
                         'product_id' => $productId,
                         'on_hand' => -$qty,
@@ -173,6 +198,7 @@ class TransferController extends Controller
                 // Log inventory movement for dispatch
                 DB::table('inventory_movements')->insert([
                     'id' => (string) Str::uuid(),
+                    'tenant_id' => $tenantId,
                     'outlet_id' => $validated['from_outlet_id'],
                     'product_id' => $productId,
                     'user_id' => $userId,

@@ -39,8 +39,11 @@ Route::prefix('v1')->group(function () {
 
             // Expenses, Income & Bank Accounts
             Route::get('/expenses', [FinanceController::class, 'expenses']);
+            Route::post('/expenses', [FinanceController::class, 'storeExpense']);
             Route::get('/income', [FinanceController::class, 'incomes']);
+            Route::post('/income', [FinanceController::class, 'storeIncome']);
             Route::get('/bank-accounts', [FinanceController::class, 'bankAccounts']);
+            Route::post('/bank-accounts', [FinanceController::class, 'storeBankAccount']);
         });
     });
 });

@@ -8,22 +8,50 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function balances(Request $request)
     {
-        $outletId = $request->query('outlet_id', 1);
+        $tenantId = $this->getTenantId($request);
+        $outletId = $request->query('outlet_id');
         $status = $request->query('status');
         $search = $request->query('q');
 
         $query = DB::table('products as p')
             ->leftJoin('inventory_balances as ib', function ($join) use ($outletId) {
-                $join->on('p.id', '=', 'ib.product_id')
-                     ->where('ib.outlet_id', '=', $outletId);
+                $join->on('p.id', '=', 'ib.product_id');
+                if (!empty($outletId)) {
+                    $join->where('ib.outlet_id', '=', $outletId);
+                }
             })
             ->leftJoin('categories as c', 'p.category_id', '=', 'c.id')
-            ->leftJoin('outlets as o', function ($join) use ($outletId) {
+            ->leftJoin('outlets as o', function ($join) {
                 $join->on('ib.outlet_id', '=', 'o.id');
             })
             ->where('p.is_active', true);
+
+        // Scope to tenant organization
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantProducts = DB::table('products')
+                ->where('tenant_id', $tenantId)
+                ->where('is_active', true)
+                ->exists();
+
+            if ($hasTenantProducts) {
+                $query->where('p.tenant_id', $tenantId);
+            } else {
+                $query->where(function ($q) use ($tenantId) {
+                    $q->where('p.tenant_id', $tenantId)
+                      ->orWhereNull('p.tenant_id');
+                });
+            }
+        }
 
         if (!empty($search)) {
             $query->where(function ($q) use ($search) {
@@ -41,11 +69,13 @@ class InventoryController extends Controller
             $query->whereRaw('COALESCE(ib.on_hand, 0) > 0');
         }
 
+        $escapedOutletId = addslashes((string)($outletId ?? '1'));
         $balances = $query->select(
                 DB::raw('COALESCE(ib.id, p.id) as balance_id'),
-                DB::raw("COALESCE(ib.outlet_id, {$outletId}) as outlet_id"),
+                DB::raw("COALESCE(ib.outlet_id, '{$escapedOutletId}') as outlet_id"),
                 DB::raw("COALESCE(o.name, 'Main Outlet') as outlet_name"),
                 'p.id as product_id',
+                'p.tenant_id',
                 'p.name as product_name',
                 'p.sku',
                 'p.barcode',
@@ -70,6 +100,7 @@ class InventoryController extends Controller
 
     public function movements(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $outletId = $request->query('outlet_id');
         $movementType = $request->query('type');
         $search = $request->query('q');
@@ -78,6 +109,18 @@ class InventoryController extends Controller
             ->join('products as p', 'im.product_id', '=', 'p.id')
             ->join('outlets as o', 'im.outlet_id', '=', 'o.id')
             ->leftJoin('users as u', 'im.user_id', '=', 'u.id');
+
+        // Scope to tenant organization
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $hasTenantMovements = DB::table('inventory_movements')->where('tenant_id', $tenantId)->exists();
+            if ($hasTenantMovements) {
+                $query->where('im.tenant_id', $tenantId);
+            } else {
+                $query->where(function ($q) use ($tenantId) {
+                    $q->where('im.tenant_id', $tenantId)->orWhereNull('im.tenant_id');
+                });
+            }
+        }
 
         if (!empty($outletId)) {
             $query->where('im.outlet_id', $outletId);
@@ -124,12 +167,13 @@ class InventoryController extends Controller
 
     public function receive(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
-            'outlet_id' => 'required|integer|exists:outlets,id',
+            'outlet_id' => 'required',
             'po_number' => 'nullable|string|max:100',
             'supplier_name' => 'nullable|string|max:255',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.product_id' => 'required',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_cost' => 'nullable|numeric|min:0',
         ]);
@@ -138,7 +182,7 @@ class InventoryController extends Controller
         $outletId = $validated['outlet_id'];
         $poNumber = $validated['po_number'] ?? ('PO-' . strtoupper(substr(uniqid(), -6)));
 
-        DB::transaction(function () use ($validated, $userId, $outletId, $poNumber) {
+        DB::transaction(function () use ($validated, $tenantId, $userId, $outletId, $poNumber) {
             foreach ($validated['items'] as $item) {
                 $productId = $item['product_id'];
                 $qty = $item['quantity'];
@@ -156,6 +200,8 @@ class InventoryController extends Controller
                         ->increment('on_hand', $qty);
                 } else {
                     DB::table('inventory_balances')->insert([
+                        'id' => (string) Str::uuid(),
+                        'tenant_id' => $tenantId,
                         'outlet_id' => $outletId,
                         'product_id' => $productId,
                         'on_hand' => $qty,
@@ -167,6 +213,8 @@ class InventoryController extends Controller
 
                 // Append to movements ledger
                 DB::table('inventory_movements')->insert([
+                    'id' => (string) Str::uuid(),
+                    'tenant_id' => $tenantId,
                     'outlet_id' => $outletId,
                     'product_id' => $productId,
                     'user_id' => $userId,
@@ -190,9 +238,10 @@ class InventoryController extends Controller
 
     public function adjust(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
-            'outlet_id' => 'required|integer|exists:outlets,id',
-            'product_id' => 'required|integer|exists:products,id',
+            'outlet_id' => 'required',
+            'product_id' => 'required',
             'quantity' => 'required|integer|min:1',
             'type' => 'required|string|in:increment,decrement',
             'reason' => 'required|string|in:spoilage,damaged,count_variance,found,other',
@@ -206,7 +255,7 @@ class InventoryController extends Controller
         $isIncrement = $validated['type'] === 'increment';
         $deltaQty = $isIncrement ? $qty : -$qty;
 
-        DB::transaction(function () use ($validated, $userId, $outletId, $productId, $deltaQty) {
+        DB::transaction(function () use ($validated, $tenantId, $userId, $outletId, $productId, $deltaQty) {
             $balance = DB::table('inventory_balances')
                 ->where('outlet_id', $outletId)
                 ->where('product_id', $productId)
@@ -220,6 +269,8 @@ class InventoryController extends Controller
                 }
             } else {
                 DB::table('inventory_balances')->insert([
+                    'id' => (string) Str::uuid(),
+                    'tenant_id' => $tenantId,
                     'outlet_id' => $outletId,
                     'product_id' => $productId,
                     'on_hand' => max(0, $deltaQty),
@@ -231,6 +282,8 @@ class InventoryController extends Controller
 
             // Append to movements ledger
             DB::table('inventory_movements')->insert([
+                'id' => (string) Str::uuid(),
+                'tenant_id' => $tenantId,
                 'outlet_id' => $outletId,
                 'product_id' => $productId,
                 'user_id' => $userId,

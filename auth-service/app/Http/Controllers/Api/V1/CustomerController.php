@@ -9,11 +9,24 @@ use Illuminate\Support\Str;
 
 class CustomerController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function index(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $search = $request->query('q');
 
         $query = DB::table('customers');
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $query->where('tenant_id', $tenantId);
+        }
 
         if (!empty($search)) {
             $query->where(function ($q) use ($search) {
@@ -34,6 +47,7 @@ class CustomerController extends Controller
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
@@ -46,6 +60,7 @@ class CustomerController extends Controller
 
         DB::table('customers')->insert([
             'id' => $id,
+            'tenant_id' => $tenantId,
             'name' => $validated['name'],
             'code' => $code,
             'email' => $validated['email'] ?? null,
@@ -67,6 +82,7 @@ class CustomerController extends Controller
 
     public function update(Request $request, $id)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255',
@@ -74,6 +90,11 @@ class CustomerController extends Controller
             'address' => 'nullable|string|max:500',
             'loyalty_points' => 'nullable|integer',
         ]);
+
+        $query = DB::table('customers')->where('id', $id);
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $query->where('tenant_id', $tenantId);
+        }
 
         $updateData = [
             'name' => $validated['name'],
@@ -87,7 +108,7 @@ class CustomerController extends Controller
             $updateData['loyalty_points'] = $validated['loyalty_points'];
         }
 
-        DB::table('customers')->where('id', $id)->update($updateData);
+        $query->update($updateData);
 
         return response()->json([
             'status' => 'success',
@@ -95,9 +116,16 @@ class CustomerController extends Controller
         ]);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        DB::table('customers')->where('id', $id)->delete();
+        $tenantId = $this->getTenantId($request);
+        $query = DB::table('customers')->where('id', $id);
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $query->delete();
 
         return response()->json([
             'status' => 'success',

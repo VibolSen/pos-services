@@ -9,15 +9,30 @@ use Illuminate\Support\Str;
 
 class GiftCardController extends Controller
 {
+    protected function getTenantId(Request $request): ?string
+    {
+        return $request->header('X-Tenant-Id')
+            ?? $request->user()?->tenant_id
+            ?? $request->query('tenant_id')
+            ?? null;
+    }
+
     public function index(Request $request)
     {
-        $this->ensureSeeded();
-        $cards = DB::table('gift_cards')->orderBy('created_at', 'desc')->get();
+        $tenantId = $this->getTenantId($request);
+        $query = DB::table('gift_cards');
+
+        if (!empty($tenantId) && $tenantId !== 'all') {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        $cards = $query->orderBy('created_at', 'desc')->get();
         return response()->json(['status' => 'success', 'data' => $cards]);
     }
 
     public function store(Request $request)
     {
+        $tenantId = $this->getTenantId($request);
         $validated = $request->validate([
             'card_code' => 'nullable|string',
             'customer' => 'nullable|string',
@@ -25,10 +40,11 @@ class GiftCardController extends Controller
         ]);
 
         $code = $validated['card_code'] ?? ('GC-' . rand(1000, 9999) . '-' . rand(1000, 9999));
-
         $id = (string) Str::uuid();
+
         DB::table('gift_cards')->insert([
             'id' => $id,
+            'tenant_id' => $tenantId,
             'card_code' => $code,
             'customer' => $validated['customer'] ?? 'Walk-in Customer',
             'balance' => $validated['balance'],
@@ -42,31 +58,5 @@ class GiftCardController extends Controller
             'message' => 'Gift card issued successfully.',
             'data' => DB::table('gift_cards')->where('id', $id)->first(),
         ], 201);
-    }
-
-    protected function ensureSeeded()
-    {
-        if (DB::table('gift_cards')->count() === 0) {
-            DB::table('gift_cards')->insert([
-                [
-                    'id' => (string) Str::uuid(),
-                    'card_code' => 'GC-9920-1120',
-                    'customer' => 'John Doe',
-                    'balance' => 50.00,
-                    'status' => 'active',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ],
-                [
-                    'id' => (string) Str::uuid(),
-                    'card_code' => 'GC-8830-4491',
-                    'customer' => 'Sophea Kim',
-                    'balance' => 100.00,
-                    'status' => 'active',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ],
-            ]);
-        }
     }
 }

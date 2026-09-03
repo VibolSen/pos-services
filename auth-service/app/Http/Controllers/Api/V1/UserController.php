@@ -13,14 +13,28 @@ class UserController extends Controller
 {
     public function index(Request $request)
     {
+        $currentUser = $request->user();
         $role = $request->query('role');
-        $search = $request->query('q');
+        $search = $request->query('q') ?? $request->query('search');
+        $scope = $request->query('scope'); // 'staff' | 'all'
 
         $query = DB::table('users as u')
             ->leftJoin('outlets as o', 'u.outlet_id', '=', 'o.id');
 
-        if (!empty($role)) {
+        // Scope to tenant organization
+        if ($currentUser && !empty($currentUser->tenant_id)) {
+            $query->where(function ($q) use ($currentUser) {
+                $q->where('u.tenant_id', $currentUser->tenant_id)
+                  ->orWhereNull('u.tenant_id'); // Global administrative fallbacks
+            });
+        }
+
+        if (!empty($role) && $role !== 'all') {
             $query->where('u.role', $role);
+        }
+
+        if ($scope === 'staff' || $request->has('staff_only')) {
+            $query->whereNotIn('u.role', ['customer', 'client', 'guest']);
         }
 
         if (!empty($search)) {
